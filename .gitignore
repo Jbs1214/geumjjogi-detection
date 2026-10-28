@@ -1,31 +1,117 @@
-.env
-*.key
+# ===== Python =====
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ===== 가상환경 =====
+.venv/
+venv/
+env/
+ENV/
+
+# ===== Jupyter =====
 .ipynb_checkpoints/
+
+# ===== IDE / OS =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ===== Claude Code 개인 설정 =====
 .claude/settings.local.json
 
-# 데이터·결과·가중치 (git 제외, CLAUDE.md 2·5절)
+# ===== 환경변수 / 비밀 (API 키 등) =====
+.env
+.env.*
+*.key
+*.pem
+
+# ===== 원본 영상 / 데이터 (교차로 영상, 얼굴·번호판 등 개인정보 포함 가능) =====
 data/*
 !data/README.md
-outputs/
-weights/
-runs/
-*.pt
-*.joblib
-*.onnx
-*.engine
-
-# 영상·프레임 (원본 유출 방지, 카메라 기본 대문자 확장자 포함)
+dataset/
+datasets/
 *.mp4
-*.MP4
-*.mov
-*.MOV
 *.avi
-*.AVI
+*.mov
 *.mkv
+*.webm
 *.m4v
+*.MP4
+*.MOV
+*.AVI
+
+# ===== 이미지 (프레임 추출본, 라벨링용 이미지) =====
+# docs/, assets/ 안의 이미지(로고, 다이어그램, 결과 그래프)는 커밋 허용
 *.jpg
-*.JPG
 *.jpeg
 *.png
+*.bmp
+*.JPG
+*.JPEG
 *.PNG
+!docs/**/*.png
+!docs/**/*.jpg
+!docs/**/*.jpeg
+!assets/**/*.png
+!assets/**/*.jpg
+!assets/**/*.jpeg
+
+# ===== 라벨링 (CSV 라벨표·박스 라벨·내보내기 파일) =====
+labels/
+cvat_export/
+annotations/
+*.zip
+*.7z
+*.tar
+*.tar.gz
+
+# ===== 추출 결과물 (이벤트 클립, 특징 CSV, 궤적 파일) =====
+# 위험 미양보 클립은 개인정보 가능성이 있어 저장소에 올리지 않음
+clips/
+events/
+tracks/
+features_out/
+*.npy
+*.npz
+*.pkl
+*.parquet
+
+# ===== 모델 가중치 (별도 저장소/드라이브로 관리) =====
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.engine
+*.torchscript
+*.h5
+*.tflite
+*.joblib
+checkpoints/
+weights/
+
+# ===== 학습 / 실험 산출물 =====
+runs/
+logs/
+lightning_logs/
+wandb/
+mlruns/
+tensorboard/
+results/
+outputs/
+
+# ===== 임시 파일 =====
+*.log
+*.tmp
+*.bak
