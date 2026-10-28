@@ -1,0 +1,19 @@
+# 검출·추적 설정 (담당: 장범수)
+model: yolo11n.pt        # 비교 대상: yolo26s.pt
+conf: 0.25
+imgsz: 640
+tracker: bytetrack.yaml  # ultralytics 내장
+
+# COCO 클래스 → 프로젝트 클래스 (여기 없는 클래스는 버림)
+class_map:
+  car: vehicle
+  bus: vehicle
+  truck: vehicle
+  motorcycle: motorcycle
+  person: pedestrian
+
+# 미세조정 라벨 ID
+train_ids:
+  vehicle: 0
+  motorcycle: 1
+  pedestrian: 2

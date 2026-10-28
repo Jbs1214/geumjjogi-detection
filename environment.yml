@@ -1,0 +1,13 @@
+name: geumjjogi-detection
+channels:
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    # GTX 10xx ~ RTX 40xx: cu118 / RTX 5090: change the 3 torch lines to a cu128 build
+    # Keep this file ASCII-only: conda on Korean Windows reads it as cp949
+    - --extra-index-url https://download.pytorch.org/whl/cu118
+    - torch==2.7.1+cu118
+    - torchvision==0.22.1+cu118
+    - -r requirements.txt

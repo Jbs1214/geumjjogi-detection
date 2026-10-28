@@ -1,0 +1,9 @@
+# torch is installed by environment.yml (GPU-specific build). Keep this file ASCII-only.
+ultralytics==8.4.190
+opencv-python==5.0.0.93
+numpy==2.4.6
+pandas==3.1.0
+scikit-learn==1.9.1
+xgboost==3.2.0
+matplotlib==3.11.2
+PyYAML==6.0.3

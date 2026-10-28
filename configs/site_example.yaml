@@ -1,0 +1,20 @@
+# 교차로 설정 예시 (담당: 김민영)
+# tracking.roi_tool 로 site_A.yaml 등을 만든다. 값은 픽셀 좌표 [x, y].
+# 파일 단위(교차로마다 / 촬영일마다)는 docs/open_questions.md 1번에서 정한다.
+
+site: A
+
+crosswalk:
+  corners_px: [[0, 0], [0, 0], [0, 0], [0, 0]]  # 좌상·우상·우하·좌하 순서 (미터 좌표 원점 = 좌상)
+  width_m: 0.0      # 좌상→우상 변, 촬영일 현장 실측
+  length_m: 0.0     # 좌상→좌하 변
+
+approach_roi_px: [[0, 0], [0, 0], [0, 0], [0, 0]]  # 우회전 진입로
+exit_roi_px: [[0, 0], [0, 0], [0, 0], [0, 0]]      # 출구 (출구 횡단보도 쪽)
+lane_px: [[0, 0], [0, 0], [0, 0], [0, 0]]          # 우회전 차량이 횡단보도를 지나는 진행 차로
+
+# 판정 기준 초기값 (docs/judgment_criteria.md, 시험 영상으로 조정)
+# 충돌 구간 = 횡단보도 ∩ (진행 차로를 양옆으로 conflict_margin_m 만큼 넓힌 영역)
+conflict_margin_m: 3.0
+stop_speed_mps: 0.5
+stop_min_duration_s: 1.0

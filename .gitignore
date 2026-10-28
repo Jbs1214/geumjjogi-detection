@@ -1,0 +1,31 @@
+.env
+*.key
+__pycache__/
+.ipynb_checkpoints/
+.claude/settings.local.json
+
+# 데이터·결과·가중치 (git 제외, CLAUDE.md 2·5절)
+data/*
+!data/README.md
+outputs/
+weights/
+runs/
+*.pt
+*.joblib
+*.onnx
+*.engine
+
+# 영상·프레임 (원본 유출 방지, 카메라 기본 대문자 확장자 포함)
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.avi
+*.AVI
+*.mkv
+*.m4v
+*.jpg
+*.JPG
+*.jpeg
+*.png
+*.PNG
