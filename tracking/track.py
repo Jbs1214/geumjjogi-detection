@@ -2,7 +2,7 @@
 """YOLO + ByteTrack으로 차량·오토바이·보행자를 추적하고 박스 하단 중심점을 미터 좌표로 바꾼다.
 오토바이 박스와 크게 겹치는 pedestrian은 운전자로 보고 뺀다.
 
-입력: 원본 영상(--video), configs/site_<교차로>.yaml, configs/detect.yaml
+입력: 원본 영상(--video), configs/site_<영상>.yaml, configs/detect.yaml
 출력: outputs/tracks/<영상>.csv (컬럼은 docs/csv_schema.md 1절)
 """
 import argparse

@@ -81,12 +81,12 @@
 conda activate geumjjogi-detection
 python check_env.py                                    # GPU·라이브러리 확인
 
-python -m tracking.roi_tool     --video <영상> --out configs/site_A.yaml --width-m <실측> --length-m <실측>
-python -m tracking.track        --video <영상> --site configs/site_A.yaml
-python -m tracking.events       --tracks outputs/tracks/<영상>.csv --site configs/site_A.yaml
-python -m traffic_light.color         --video <영상> --site configs/site_A.yaml          # 2단계, → outputs/signal/ (빨간불 시간표)
-python -m features.build        --events outputs/events/<영상>.csv --tracks outputs/tracks/<영상>.csv --site configs/site_A.yaml --signal outputs/signal/<영상>.csv
-python -m rules.rule            --features outputs/features/<영상>.csv --site configs/site_A.yaml
+python -m tracking.roi_tool     --video <영상> --out configs/site_<영상>.yaml --width-m <실측> --length-m <실측>
+python -m tracking.track        --video <영상> --site configs/site_<영상>.yaml
+python -m tracking.events       --tracks outputs/tracks/<영상>.csv --site configs/site_<영상>.yaml
+python -m traffic_light.color         --video <영상> --site configs/site_<영상>.yaml          # 2단계, → outputs/signal/ (빨간불 시간표)
+python -m features.build        --events outputs/events/<영상>.csv --tracks outputs/tracks/<영상>.csv --site configs/site_<영상>.yaml --signal outputs/signal/<영상>.csv
+python -m rules.rule            --features outputs/features/<영상>.csv --site configs/site_<영상>.yaml
 python -m eval.report           --judged outputs/judged --labels data/labels
 streamlit run dashboard/app.py                          # 위반율 대시보드(읽기 전용)
 ```

@@ -4,7 +4,6 @@
 
 | # | 질문 | 관련 파일 | 담당 | 기한 |
 | --- | --- | --- | --- | --- |
-| 1 | site 설정 파일 단위: 교차로마다 1개(`site_A.yaml`)인가, 촬영일마다 1개(`site_A_20261031.yaml`)인가? 삼각대라 화각이 매번 바뀔 수 있다 | `configs/site_example.yaml`, `tracking/roi_tool.py` | 김민영 | 10.31 1주차 촬영 전 |
 | 2 | 정답 구간 이벤트와 파이프라인 이벤트를 같은 것으로 보는 규칙 (예: `t_enter_s` 차이 ±N초 이내) | `eval/metrics.py` `extraction_recall` | 육주영 | 11.09 |
 | 3 | 이중 라벨 구간에서 어느 라벨을 정답으로 쓰는가, 두 라벨이 다를 때 어떻게 정하는가 | `docs/labeling_guide.md`, `eval/report.py` | 육주영·장범수 | 11.09 |
 | 4 | 결과물 1번 "분석 영상(mp4)"을 만드는 스크립트와 담당 | `CLAUDE.md` 1절 | 팀 | 11.16 |
