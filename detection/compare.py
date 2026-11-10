@@ -1,7 +1,8 @@
 # 담당: 장범수
 """YOLO11n과 YOLO26s의 클래스별 검출 재현율·속도를 비교한다.
 
-입력: 박스 라벨이 있는 프레임(data/boxes/)의 YOLO 형식 data.yaml, 비교할 모델 이름들
+입력: 검출 고도화의 검증 프레임(data/boxes/, 약 80장, 초기값)의 YOLO 형식 data.yaml, 비교할 모델 이름들
+      (비교용 라벨을 따로 만들지 않는다, 기술서 11.1)
 출력: 모델별 클래스 재현율·mAP·FPS 표 (docs/experiments.md에 옮겨 적는다)
 """
 import argparse
