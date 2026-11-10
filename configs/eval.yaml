@@ -7,6 +7,7 @@ bootstrap_n: 1000        # F1 부트스트랩 95% 구간의 재표본 수 (기�
 
 # 블러 (eval.clips, eval.overlay). 기술서 11.1 블러 방법의 초기값
 blur_conf: 0.10          # 블러용 검출 기준. 판정용(detect.yaml conf 0.25)보다 낮게 잡아 놓치는 사람·차량을 줄임
-blur_margin: 0.15        # 박스 각 변을 이 비율만큼 넓혀서 블러
+blur_plate_frac: 0.4     # 차량·오토바이 박스에서 블러하는 아래쪽 비율 (번호판 위치)
+blur_margin: 0.15       # 박스 각 변을 이 비율만큼 넓혀서 블러
 blur_interp_max_s: 2.0   # 검출이 끊긴 구간을 앞뒤 박스로 보간하는 최대 길이 (트랙 이어 붙이기 merge_gap_s와 같게)
 blur_kernel_frac: 0.5    # 가우시안 커널 크기 = 박스 짧은 변 x 이 값(홀수로 올림). 알아볼 수 없을 만큼 강하게
