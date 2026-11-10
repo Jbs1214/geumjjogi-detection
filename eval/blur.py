@@ -14,22 +14,28 @@ from ultralytics import YOLO
 Box = tuple[str, float, float, float, float]  # (COCO 클래스, x1, y1, x2, y2) 픽셀
 
 
-def detect_boxes(video: str, detect_cfg: dict, blur_conf: float) -> list[list[Box]]:
-    """영상 전체를 검출해 프레임별 박스 목록을 돌려준다. 추적을 쓰지 않아 운전자도 포함된다."""
+def detect_boxes(
+    video: str, detect_cfg: dict, blur_conf: float, start: int = 0, end: int | None = None
+) -> list[list[Box]]:
+    """start~end(끝 제외) 프레임을 검출해 프레임별 박스 목록을 돌려준다. end가 없으면 영상 끝까지.
+    추적을 쓰지 않아 운전자도 포함된다."""
     model = YOLO(detect_cfg["model"])
     class_ids = [i for i, name in model.names.items() if name in detect_cfg["class_map"]]
     cap = cv2.VideoCapture(video)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    cap.release()
+    end = total if end is None else min(end, total)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start)
     frames = []
-    results = model.predict(
-        source=video, stream=True, conf=blur_conf, imgsz=detect_cfg["imgsz"], classes=class_ids, verbose=False
-    )
-    for r in results:
+    while start + len(frames) < end:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        r = model.predict(frame, conf=blur_conf, imgsz=detect_cfg["imgsz"], classes=class_ids, verbose=False)[0]
         frames.append([
             (model.names[int(c)], *xyxy) for c, xyxy in zip(r.boxes.cls.tolist(), r.boxes.xyxy.tolist())
         ])
-        print_progress("1/2 검출", len(frames), total)
+        print_progress("검출", len(frames), end - start)
+    cap.release()
     return frames
 
 

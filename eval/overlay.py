@@ -81,7 +81,7 @@ def render(
 
         writer.write(frame)
         f += 1
-        print_progress("2/2 블러·저장", f, total)
+        print_progress("블러·저장", f, total)
 
     cap.release()
     writer.release()
