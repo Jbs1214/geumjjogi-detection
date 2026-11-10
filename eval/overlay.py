@@ -21,7 +21,7 @@ from eval.blur import Box, blur_frame, detect_boxes, fill_gaps, print_progress
 
 # 표시용 값 (판정 기준이 아님)
 TRAIL_S = 2.0        # 궤적을 그리는 길이
-LABEL_HOLD_S = 2.0   # 횡단보도 진입 뒤 판정 글자를 남겨 두는 시간
+LABEL_HOLD_S = 3.0   # 출구 횡단보도 진입 시각 앞뒤로 판정 글자를 보여 주는 시간
 CROSSWALK_COLOR = (0, 255, 255)
 CLS_COLORS = {"vehicle": (255, 160, 0), "motorcycle": (255, 0, 255), "pedestrian": (0, 255, 0)}
 RESULT_COLORS = {"no_yield": (0, 0, 255), "yield": (0, 200, 0), "exclude": (160, 160, 160)}
@@ -46,7 +46,9 @@ def render(
     if not writer.isOpened():
         raise RuntimeError(f"출력 영상을 열 수 없다: {out_path}")
 
-    corners = np.array(site_cfg["crosswalk"]["corners_px"], np.int32)
+    # 출구 횡단보도 + 우회전 경로가 지나는 다른 횡단보도
+    crosswalks = [site_cfg["crosswalk"]["corners_px"], *site_cfg.get("other_crosswalks_px", {}).values()]
+    crosswalks = [np.array(c, np.int32) for c in crosswalks]
     rows_by_frame = {f: g for f, g in tracks.groupby("frame")}
     trail_frames = int(TRAIL_S * fps)
     trails: dict[int, list[tuple[int, int, int]]] = {}  # track_id -> [(frame, x, y)]
@@ -58,10 +60,10 @@ def render(
             break
         if f < len(blur_boxes):
             blur_frame(frame, blur_boxes[f], eval_cfg)
-        cv2.polylines(frame, [corners], True, CROSSWALK_COLOR, 2)
+        cv2.polylines(frame, crosswalks, True, CROSSWALK_COLOR, 2)
 
         t = f / fps
-        active = judged[(judged["t_approach_s"] <= t) & (t <= judged["t_enter_s"] + LABEL_HOLD_S)]
+        active = judged[(judged["t_enter_s"] - t).abs() <= LABEL_HOLD_S]
         result_by_track = dict(zip(active["track_id"], active["ped_result"]))
 
         if f in rows_by_frame:

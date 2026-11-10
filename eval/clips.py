@@ -10,7 +10,7 @@ configs/eval.yaml의 blur_conf 기준으로 다시 검출해 얻는다(운전자
 출력: outputs/clips/<영상>_<event_id>.mp4, judged CSV의 clip 컬럼에 클립 경로를 채운다
 
 지금은 1단계 미양보(no_yield)만 자른다. 미정지 클립은 MVP 뒤에 추가한다.
-클립 구간은 접근~진입 앞뒤로 clip_pad_s(configs/eval.yaml)를 붙인 것이다. tracks의 frame은 0부터 세는 프레임 번호로 본다.
+클립 구간은 출구 횡단보도 진입 시각(t_enter_s) 앞뒤로 clip_pad_s(configs/eval.yaml)씩이다. tracks의 frame은 0부터 세는 프레임 번호로 본다.
 """
 import argparse
 from pathlib import Path
@@ -78,7 +78,7 @@ def make_clips(
     targets = judged_df[judged_df["ped_result"] == "no_yield"]
     clips = {}
     for n, r in enumerate(targets.itertuples(), 1):
-        start = max(int((r.t_approach_s - eval_cfg["clip_pad_s"]) * fps), 0)
+        start = max(int((r.t_enter_s - eval_cfg["clip_pad_s"]) * fps), 0)
         end = min(int((r.t_enter_s + eval_cfg["clip_pad_s"]) * fps) + 1, total)
         blur_boxes = fill_gaps(
             detect_boxes(video, detect_cfg, eval_cfg["blur_conf"], start, end),

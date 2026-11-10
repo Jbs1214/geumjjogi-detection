@@ -38,13 +38,12 @@ class MakeClipsTest(unittest.TestCase):
             "video": "v",
             "event_id": [1, 2, 3],
             "track_id": [7, 8, 9],
-            "t_approach_s": [1.0, 1.0, 0.2],
-            "t_enter_s": [2.0, 2.0, 4.9],
+            "t_enter_s": [2.0, 2.0, 4.75],
             "ped_result": ["no_yield", "yield", "no_yield"],
             "clip": "",
         })
         tracks = pd.DataFrame({
-            "frame": range(5, 26), "track_id": 7, "cls": "vehicle", "x1": 10, "y1": 30, "x2": 50, "y2": 70,
+            "frame": range(15, 26), "track_id": 7, "cls": "vehicle", "x1": 10, "y1": 30, "x2": 50, "y2": 70,
         })
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
@@ -65,10 +64,10 @@ class MakeClipsTest(unittest.TestCase):
                 )
 
             self.assertEqual(sorted(p.name for p in (tmp / "clips").iterdir()), ["v_1.mp4", "v_3.mp4"])
-            # 이벤트 1: (1.0-0.5)~(2.0+0.5)초 → 프레임 5~25, 21장
-            self.assertEqual(count_frames(tmp / "clips" / "v_1.mp4"), 21)
-            # 이벤트 3: 앞뒤 여백이 영상 범위를 넘으면 영상 전체(50장)로 잘린다
-            self.assertEqual(count_frames(tmp / "clips" / "v_3.mp4"), N_FRAMES)
+            # 이벤트 1: 2.0초 ± 0.5초 → 프레임 15~25, 11장
+            self.assertEqual(count_frames(tmp / "clips" / "v_1.mp4"), 11)
+            # 이벤트 3: 4.75초 ± 0.5초는 영상 끝(프레임 50)을 넘으므로 프레임 42~49, 8장으로 잘린다
+            self.assertEqual(count_frames(tmp / "clips" / "v_3.mp4"), 8)
 
             out = pd.read_csv(tmp / "judged.csv", encoding="utf-8-sig", keep_default_na=False)
             self.assertTrue(out["clip"][0].endswith("clips/v_1.mp4"))

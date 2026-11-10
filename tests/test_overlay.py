@@ -11,7 +11,10 @@ import pandas as pd
 from eval.overlay import render
 
 EVAL_CFG = {"blur_margin": 0.15, "blur_kernel_frac": 0.5, "blur_plate_frac": 0.4}
-SITE_CFG = {"crosswalk": {"corners_px": [[20, 60], [140, 60], [140, 100], [20, 100]]}}
+SITE_CFG = {
+    "crosswalk": {"corners_px": [[20, 60], [140, 60], [140, 100], [20, 100]]},
+    "other_crosswalks_px": {"near": [[5, 10], [15, 10], [15, 50], [5, 50]]},
+}
 N_FRAMES, FPS, SIZE = 12, 10.0, (160, 120)
 
 
@@ -46,7 +49,7 @@ class RenderTest(unittest.TestCase):
             "x2": [50 + 5 * f for f in range(N_FRAMES)],
             "y2": 70,
         })
-        judged = pd.DataFrame({"track_id": [7], "t_approach_s": [0.2], "t_enter_s": [0.6], "ped_result": ["no_yield"]})
+        judged = pd.DataFrame({"track_id": [7], "t_enter_s": [0.6], "ped_result": ["no_yield"]})
         blur_boxes = [[("car", 10 + 5 * f, 30, 50 + 5 * f, 70)] for f in range(N_FRAMES)]
         with tempfile.TemporaryDirectory() as tmp:
             src, out = Path(tmp) / "src.mp4", Path(tmp) / "out.mp4"
@@ -58,7 +61,7 @@ class RenderTest(unittest.TestCase):
 
     def test_empty_tracks_and_judged(self):
         tracks = pd.DataFrame(columns=["frame", "track_id", "cls", "x1", "y1", "x2", "y2"])
-        judged = pd.DataFrame(columns=["track_id", "t_approach_s", "t_enter_s", "ped_result"])
+        judged = pd.DataFrame(columns=["track_id", "t_enter_s", "ped_result"])
         with tempfile.TemporaryDirectory() as tmp:
             src, out = Path(tmp) / "src.mp4", Path(tmp) / "out.mp4"
             write_video(src)
