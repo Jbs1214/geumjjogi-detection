@@ -12,7 +12,6 @@
 | `video` | 영상 파일 이름(확장자 제외) | `A_20261031_0800` |
 | `event_id` | 영상 안 이벤트 번호. 정답 구간은 라벨러가 매기고, 나머지 영상은 judged의 `event_id`를 그대로 쓴다 | `12` |
 | `cls` | `vehicle` / `motorcycle` | `vehicle` |
-| `t_approach_s` | 차량이 접근 구간에 들어온 시각(초) | `754.2` |
 | `t_enter_s` | 차량이 횡단보도 영역에 진입한 시각(초) | `760.8` |
 | `ped_label` | 1단계 보행자: `yield` / `no_yield` / `exclude` | `no_yield` |
 | `red_label` | 2단계 정지선: `stopped` / `not_stopped` / `exclude` / `na`(적색 아님) | `na` |
