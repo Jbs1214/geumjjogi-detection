@@ -1,6 +1,6 @@
 # 단계별 CSV 스키마
 
-> **초안 — 10.30 팀 합의로 확정, 11.10 기획서·기술서(11.04) 기준으로 개정.** 파트 사이의 경계이므로 컬럼을 바꾸면 이 문서를 먼저 고치고 팀에 공유한다.
+> **10.30 팀 합의로 확정, 11.10 기획서·기술서(11.04) 기준으로 개정, 같은 날 기술서 11.1(11.10) 반영.** 파트 사이의 경계이므로 컬럼을 바꾸면 이 문서를 먼저 고치고 팀에 공유한다.
 
 ## 공통 규칙
 
@@ -21,6 +21,7 @@
 | `t_s` | 시각 |
 | `track_id` | 추적 ID |
 | `cls` | 클래스 |
+| `coco_cls` | COCO 원래 클래스 (`car` / `bus` / `truck` / `motorcycle` / `person`). events에 트랙의 최빈값으로 옮기고, judged의 `vehicle_type`(승용·버스·트럭·오토바이)으로 바꾼다 |
 | `conf` | 검출 신뢰도 |
 | `x1, y1, x2, y2` | 박스 (픽셀) |
 | `bx_m, by_m` | 박스 하단 중심점의 미터 좌표 |
@@ -32,10 +33,10 @@
 | 컬럼 | 뜻 |
 | --- | --- |
 | `video`, `event_id`, `track_id`, `cls` | 식별 |
+| `coco_cls` | 트랙의 COCO 클래스 최빈값 (`car` / `bus` / `truck` / `motorcycle`) |
 | `t_approach_s` | 접근 구간(진입선 앞 약 15 m)에 들어온 시각 |
 | `t_enter_s` | 횡단보도 영역에 진입한 시각 (박스 하단 중심점 기준) |
-| `t_exit_s` | 출구 ROI를 통과한 시각 |
-| `t_stopline_s` | 정지선을 통과한 시각 (2단계, 정지선이 없으면 비움) |
+| `t_stopline_s` | 정지선(없으면 진입 쪽 횡단보도 앞 기준선)을 통과한 시각. 접근 구간보다 앞일 수 있어 궤적 전체에서 찾는다 (2단계) |
 
 ## 3. signal — `outputs/signal/<video>.csv` (김민영, `traffic_light.color`)
 
@@ -57,10 +58,11 @@ events의 컬럼 전부 + 아래 컬럼. MVP에서는 시계열을 요약값으�
 | `entry_speed` | m/s | 진입 시점 속도 |
 | `min_dist_m` | m | 접근 중 횡단보도까지 최소 거리 |
 | `n_ped_max` | 명 | 접근~진입 사이 횡단보도 위 보행자 수 최댓값 (0이면 판정 제외 대상) |
+| `peds_lost` | 명 | 접근~진입 사이 횡단보도 경계에서 `occluded_edge_m`보다 안쪽에서 끊긴 보행자 트랙 수 (1 이상이면 가림 의심 → 제외) |
 | `peds_at_entry` | 명 | 진입 시점(`t_enter_s`)에 횡단보도 위에 있던 보행자 수 (1 이상이면 미양보) |
-| `stop_sec` | s | 정지 기준(0.5 m/s 이하)을 채운 가장 긴 시간. **참고값**, 판정 조건 아님 |
+| `stop_sec` | s | 접근~진입 사이 정지 기준(0.5 m/s 이하)을 채운 가장 긴 시간. **참고값**, 판정 조건 아님 |
 | `signal_at_stopline` | - | 정지선 통과 시각의 신호 상태 (`red` / `not_red` / `unknown`) |
-| `stop_sec_before_line` | s | 정지선 직전 정지 시간 (2단계) |
+| `stop_sec_before_line` | s | 정지선 앞 `stopline_zone_m` 안에서 정지 기준을 채운 가장 긴 시간 (2단계, `stop_min_duration_s` 이상이면 일시정지) |
 
 ## 5. judged — `outputs/judged/<video>.csv` (육주영, `rules.rule`)
 
@@ -71,10 +73,18 @@ features의 컬럼 전부 + 이벤트 로그 필드(기술서 3.3).
 | `intersection` | 교차로 이름 (`configs/site_*.yaml`의 `site`, 대시보드 필터 기준) |
 | `wall_time`, `slot` | 실제 시각, 시간대(1시간, 예: 08–09시). 영상 파일 이름의 촬영 시작 시각 기준 |
 | `vehicle_type` | 승용·버스·트럭·오토바이 |
-| `ped_result` | `yield` / `no_yield` / `exclude` (+ 제외 사유 `ped_exclude_reason`) |
-| `red_result` | `stopped` / `not_stopped` / `exclude` / `na` (적색 아님) |
+| `ped_result` | `yield` / `no_yield` / `exclude` (+ 제외 사유 `ped_exclude_reason`: `no_ped` 접근 중 보행자 없음, `occluded` 가림 의심, `not_right_turn` 우회전 아님(사람 확인 때만), `camera_moved` 카메라가 움직인 구간) |
+| `red_result` | `stopped` / `not_stopped` / `exclude` / `na` (적색 아님 = 녹색·황색) (+ 제외 사유 `red_exclude_reason`: `signal_unknown` 신호 불명, `stopline_hidden` 정지선 가려짐, `rturn_signal` 우회전 전용 신호, `camera_moved` 카메라가 움직인 구간) |
+| `status` | `auto` (규칙 판정 그대로). 사람이 확인한 이벤트는 labels에 행이 생기고 `eval.report`가 합쳐 `reviewed`로 센다 |
 | `clip` | 위반 의심 클립 경로 (`eval.clips`가 채움, 없으면 비움) |
 
-## 6. labels — `data/labels/<video>_<라벨러>.csv`
+## 6. labels — `data/labels/` (사람이 단 정답)
 
-`docs/labeling_guide.md` 참고.
+자세한 규칙은 `docs/labeling_guide.md`.
+
+| 파일 | 컬럼 |
+| --- | --- |
+| `<video>_<라벨러>.csv` (이벤트 라벨) | `video`, `event_id`, `cls`, `t_approach_s`, `t_enter_s`, `ped_label`, `red_label`, `labeler`, `note` |
+| `<video>_red.csv` (빨간불 시각) | `video`, `t_start_s`, `t_end_s`, `labeler` |
+
+- `ped_label`: `yield` / `no_yield` / `exclude`. `red_label`: `stopped` / `not_stopped` / `exclude` / `na`.

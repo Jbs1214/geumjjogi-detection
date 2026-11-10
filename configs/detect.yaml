@@ -5,6 +5,12 @@ imgsz: 640
 tracker: bytetrack.yaml  # ultralytics 내장
 driver_overlap_min: 0.5  # 오토바이 박스와 겹치는 비율이 이 값 이상인 person은 운전자로 보고 보행자에서 뺌 (기술서 1.1, 초기값)
 
+# 트랙 후처리·속도 (기술서 1.1·1.2, 초기값)
+min_track_s: 1.0         # 이보다 짧은 트랙은 지움
+merge_gap_s: 2.0         # 끊긴 같은 종류 트랙을 이어 붙이는 최대 시간 간격
+merge_dist_m: 1.5        # 이어 붙이는 최대 거리 (미터 좌표)
+speed_window_s: 0.5      # 미터 좌표 이동평균 창 (속도 계산)
+
 # COCO 클래스 → 프로젝트 클래스 (여기 없는 클래스는 버림)
 class_map:
   car: vehicle
