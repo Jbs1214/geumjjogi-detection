@@ -1,8 +1,8 @@
 # 담당: 육주영
-"""규칙 기반 판정기 (기준선). docs/judgment_criteria.md의 기준을 그대로 코드로 옮긴다.
+"""규칙 판정기. docs/judgment_criteria.md의 기준(보행자 1단계, 정지선 2단계)을 그대로 코드로 옮긴다.
 
 입력: outputs/features/<영상>.csv, configs/site_<교차로>.yaml (정지 기준값)
-출력: outputs/judged/<영상>.csv (컬럼은 docs/csv_schema.md 4절)
+출력: outputs/judged/<영상>.csv (컬럼은 docs/csv_schema.md 5절)
 """
 import argparse
 

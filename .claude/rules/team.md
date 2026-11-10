@@ -41,6 +41,7 @@
 | `main` | 항상 돌아가는 상태 | 직접 push 금지 |
 | `feat/기능명` | 기능 개발 | 각자 |
 | `fix/버그명` | 버그 수정 | 각자 |
+| `docs/문서명` | 문서만 수정 | 각자 |
 
 main 반영: `feat/fix 브랜치 push → GitHub에서 PR 생성 → 팀장(장범수) 확인 후 main에 merge`
 

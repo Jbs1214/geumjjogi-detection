@@ -1,10 +1,10 @@
 # 차량 우회전 양보 감지 (Right-Turn Yield Detection)
 
-교차로 영상에서 우회전 차량·오토바이가 출구 횡단보도의 보행자에게 **양보했는지** 자동으로 판정하고, 시간대별 양보율을 95% 신뢰구간과 함께 보여 주는 영상 분석 프로젝트입니다.
+교차로 영상에서 우회전 차량·오토바이가 출구 횡단보도의 보행자에게 **양보했는지**(1단계), 적색 신호에서 정지선에 **일시정지했는지**(2단계) 자동으로 판정하고, 교차로·시간대별 위반율을 95% 신뢰구간과 함께 보여 주는 영상 분석 프로젝트입니다. 현장 적발용이 아니라 단속 위치·시간의 우선순위를 정하는 통계 도구입니다.
 
 - 팀: 금쪽같은 우리 사이 (장범수 · 김민영 · 육주영)
 - 기간: 2026.10.26 ~ 2026.11.27 · MVP 11.18
-- 방식: YOLO 검출 → ByteTrack 추적 → homography(미터 좌표) → 우회전 이벤트 추출 → 양보 / 미양보 판정 → 양보율 집계
+- 방식: YOLO 검출 → ByteTrack 추적 → homography(미터 좌표) → 우회전 이벤트 추출 → 규칙 판정(양보 / 미양보, 일시정지 / 미정지) → 위반율 집계 → Streamlit 대시보드
 
 판정 기준은 [`docs/judgment_criteria.md`](docs/judgment_criteria.md)에 있습니다. 이 기준은 영상 분석용 정의이며 법적 위반 판정이 아닙니다.
 
@@ -42,9 +42,11 @@ python check_env.py
 python -m tracking.roi_tool     --video <영상> --out configs/site_A.yaml --width-m <실측> --length-m <실측>  # 횡단보도·ROI 지정
 python -m tracking.track        --video <영상> --site configs/site_A.yaml         # → outputs/tracks/
 python -m tracking.events       --tracks outputs/tracks/<영상>.csv --site configs/site_A.yaml   # → outputs/events/
-python -m features.build        --events outputs/events/<영상>.csv --tracks outputs/tracks/<영상>.csv --site configs/site_A.yaml  # → outputs/features/
-python -m yield_classifier.rule --features outputs/features/<영상>.csv --site configs/site_A.yaml  # → outputs/judged/
-python -m eval.report           --judged outputs/judged --labels data/labels      # 양보율 표·그래프
+python -m traffic_light.color          --video <영상> --site configs/site_A.yaml         # 2단계 → outputs/signal/ (빨간불 시간표)
+python -m features.build        --events outputs/events/<영상>.csv --tracks outputs/tracks/<영상>.csv --site configs/site_A.yaml --signal outputs/signal/<영상>.csv  # → outputs/features/
+python -m rules.rule            --features outputs/features/<영상>.csv --site configs/site_A.yaml  # → outputs/judged/
+python -m eval.report           --judged outputs/judged --labels data/labels      # 위반율 표·그래프
+streamlit run dashboard/app.py                                                          # 위반율 대시보드(읽기 전용)
 ```
 
 단계 사이 CSV의 컬럼은 [`docs/csv_schema.md`](docs/csv_schema.md)에 있습니다.
@@ -57,16 +59,22 @@ python -m eval.report           --judged outputs/judged --labels data/labels    
 | `detection/` | 사전학습 시험, 모델 비교(YOLO11n vs YOLO26s), 미세조정 | 장범수 |
 | `tracking/` | ROI 지정 도구, homography, 추적, 우회전 이벤트 추출 | 김민영 |
 | `features/` | 속도·거리·보행자 특징 계산 | 김민영 |
-| `yield_classifier/` | 규칙 기반 판정, RF·XGBoost 분류기 | 육주영 |
-| `eval/` | 평가 지표, 시간대별 양보율, 미양보 클립 | 육주영 |
+| `traffic_light/` | 차량 신호등 영역 지정·색 판정(빨간불 시간표) | 김민영 |
+| `rules/` | 규칙 판정(보행자·정지선) | 육주영 |
+| `eval/` | 평가 지표, 시간대별 위반율, 위반 의심 클립 | 육주영 |
+| `dashboard/` | Streamlit 위반율 화면(판정 CSV를 읽는 읽기 전용) | 육주영 |
 | `docs/` | 판정 기준표, 라벨링 가이드, CSV 스키마, 팀 결정 필요 목록, 가중치·실험 기록 | 공통 |
 | `notebooks/` | 정리된 분석 노트북 | 공통 |
 | `data/`, `outputs/`, `weights/` | 라벨·결과·가중치 (git 제외) | — |
 
+## 용어: 미양보 = 위반 의심
+
+코드·CSV는 `yield` / `no_yield`를 쓰고, 문서·발표·대시보드는 "위반 의심"을 씁니다. **미양보 = 위반 의심**, **위반율 = 미양보 ÷ (양보 + 미양보) = 1 − 양보율**. 적색 위반율은 미정지 ÷ (일시정지 + 미정지)이고 따로 집계합니다.
+
 ## 개인정보
 
 - 원본 영상은 Google Drive·카카오톡 등 외부 서비스에 올리지 않습니다. 최종 발표 후 폐기합니다.
-- 미양보 클립은 보행자 박스 전체와 차량·오토바이 박스 아래 40%(번호판 위치)를 블러합니다. 번호 인식은 하지 않습니다.
+- 위반 의심(미양보·미정지) 클립은 보행자 박스 전체와 차량·오토바이 박스 아래 40%(번호판 위치)를 블러합니다. 번호 인식은 하지 않습니다.
 
 ## 팀 규칙
 

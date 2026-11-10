@@ -24,7 +24,7 @@ def gpu_compute():
     return f"{(x @ x).sum().item():.1f}"
 
 
-for module in ["torch", "ultralytics", "cv2", "numpy", "pandas", "sklearn", "xgboost", "matplotlib", "yaml"]:
+for module in ["torch", "ultralytics", "cv2", "numpy", "pandas", "sklearn", "matplotlib", "yaml", "streamlit"]:
     check(f"{module} 버전", lambda m=module: import_module(m).__version__)
 check("CUDA 사용 가능", cuda_available)
 check("GPU 이름", lambda: import_module("torch").cuda.get_device_name(0))
