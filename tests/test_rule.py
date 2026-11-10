@@ -11,29 +11,29 @@ from rules.rule import in_camera_moved, judge, judge_ped
 
 
 class JudgePedTest(unittest.TestCase):
-    def test_no_pedestrian_is_excluded(self):
-        self.assertEqual(judge_ped(0, 0, 0, False), ("exclude", "no_ped"))
+    def test_no_pedestrian_at_entry_is_yield(self):
+        self.assertEqual(judge_ped(0, 0, False), ("yield", ""))
 
     def test_pedestrian_at_entry_is_no_yield(self):
-        self.assertEqual(judge_ped(2, 0, 1, False), ("no_yield", ""))
+        self.assertEqual(judge_ped(0, 1, False), ("no_yield", ""))
 
-    def test_all_pedestrians_left_is_yield(self):
-        self.assertEqual(judge_ped(2, 0, 0, False), ("yield", ""))
+    def test_visible_pedestrian_wins_over_lost_track(self):
+        self.assertEqual(judge_ped(1, 1, False), ("no_yield", ""))
 
     def test_lost_pedestrian_track_is_excluded(self):
-        self.assertEqual(judge_ped(2, 1, 0, False), ("exclude", "occluded"))
+        self.assertEqual(judge_ped(1, 0, False), ("exclude", "occluded"))
 
     def test_camera_moved_is_excluded_first(self):
-        self.assertEqual(judge_ped(2, 0, 1, True), ("exclude", "camera_moved"))
+        self.assertEqual(judge_ped(0, 1, True), ("exclude", "camera_moved"))
 
 
 class CameraMovedTest(unittest.TestCase):
-    def test_overlap(self):
-        self.assertTrue(in_camera_moved(95.0, 101.0, [[100.0, 120.0]]))
+    def test_inside(self):
+        self.assertTrue(in_camera_moved(101.0, [[100.0, 120.0]]))
 
-    def test_no_overlap(self):
-        self.assertFalse(in_camera_moved(80.0, 90.0, [[100.0, 120.0]]))
-        self.assertFalse(in_camera_moved(80.0, 90.0, []))
+    def test_outside(self):
+        self.assertFalse(in_camera_moved(90.0, [[100.0, 120.0]]))
+        self.assertFalse(in_camera_moved(90.0, []))
 
 
 class JudgeFileTest(unittest.TestCase):
@@ -44,12 +44,10 @@ class JudgeFileTest(unittest.TestCase):
             "track_id": [11, 12, 13],
             "cls": ["vehicle", "motorcycle", "vehicle"],
             "coco_cls": ["car", "motorcycle", "bus"],
-            "t_approach_s": [10.0, 95.0, 3695.0],
             "t_enter_s": [15.0, 101.0, 3700.0],
-            "n_ped_max": [2, 1, 1],
             "peds_lost": [0, 0, 0],
             "peds_at_entry": [1, 1, 0],
-            "stop_sec": [5.0, 0.0, 0.0],  # 정지했어도 진입 때 보행자가 있으면 미양보
+            "no_yield_at": ["near", "exit", ""],
         })
         site = {"site": "A", "camera_moved_s": [[100.0, 120.0]]}
         with tempfile.TemporaryDirectory() as tmp:
@@ -68,6 +66,7 @@ class JudgeFileTest(unittest.TestCase):
         self.assertEqual(list(out["intersection"]), ["A"] * 3)
         self.assertEqual(list(out["status"]), ["auto"] * 3)
         self.assertEqual(list(out["clip"]), [""] * 3)
+        self.assertEqual(list(out["no_yield_at"]), ["near", "exit", ""])  # 어느 횡단보도에서 위반했는지 남는다
 
 
 if __name__ == "__main__":
