@@ -7,15 +7,17 @@ configs/eval.yaml의 blur_conf 기준으로 다시 검출해 얻는다(운전자
 입력: 원본 영상(--video), outputs/tracks/<영상>.csv, outputs/judged/<영상>.csv, configs/site_<영상>.yaml
 출력: outputs/overlay/<영상>.mp4
 
-tracks의 frame은 0부터 세는 프레임 번호로 본다. 판정 글자는 영어로 쓴다(OpenCV 글자 그리기가 한글을 지원하지 않는다).
+tracks의 frame은 0부터 세는 프레임 번호로 본다. 판정 글자(미양보·양보·제외)는 Pillow로 한글을 그린다(글꼴: 맑은 고딕).
 """
 import argparse
+from functools import lru_cache
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pandas as pd
 import yaml
+from PIL import Image, ImageDraw, ImageFont
 
 from eval.blur import Box, blur_frame, detect_boxes, fill_gaps, print_progress
 
@@ -25,7 +27,29 @@ LABEL_HOLD_S = 3.0   # 출구 횡단보도 진입 시각 앞뒤로 판정 글자
 CROSSWALK_COLOR = (0, 255, 255)
 CLS_COLORS = {"vehicle": (255, 160, 0), "motorcycle": (255, 0, 255), "pedestrian": (0, 255, 0)}
 RESULT_COLORS = {"no_yield": (0, 0, 255), "yield": (0, 200, 0), "exclude": (160, 160, 160)}
-RESULT_TEXT = {"no_yield": "NO YIELD", "yield": "YIELD", "exclude": "EXCLUDE"}
+RESULT_TEXT = {"no_yield": "미양보", "yield": "양보", "exclude": "제외"}
+FONT_FILE = "malgun.ttf"  # Windows 맑은 고딕
+FONT_SIZE = 22
+
+
+@lru_cache
+def text_mask(text: str) -> np.ndarray:
+    """한글 글자를 그린 흑백 마스크(True = 글자). OpenCV는 한글을 못 그려 Pillow로 만든다."""
+    font = ImageFont.truetype(FONT_FILE, FONT_SIZE)
+    _, _, right, bottom = font.getbbox(text)
+    img = Image.new("L", (right, bottom), 0)
+    ImageDraw.Draw(img).text((0, 0), text, fill=255, font=font)
+    return np.array(img) > 127
+
+
+def put_korean(frame: np.ndarray, text: str, x: int, y: int, color: tuple) -> None:
+    """(x, y)를 글자의 왼쪽 위로 삼아 프레임에 한글을 그린다. 화면 밖으로 나가면 안쪽으로 당긴다."""
+    mask = text_mask(text)
+    h, w = mask.shape
+    x = max(min(x, frame.shape[1] - w), 0)
+    y = max(min(y, frame.shape[0] - h), 0)
+    region = frame[y:y + h, x:x + w]
+    region[mask[:region.shape[0], :region.shape[1]]] = color
 
 
 def render(
@@ -71,9 +95,12 @@ def render(
                 x1, y1, x2, y2 = int(r.x1), int(r.y1), int(r.x2), int(r.y2)
                 result = result_by_track.get(r.track_id)
                 color = RESULT_COLORS[result] if result else CLS_COLORS[r.cls]
-                text = f"{r.track_id} {RESULT_TEXT[result]}" if result else str(r.track_id)
+                text = str(r.track_id)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(frame, text, (x1, max(y1 - 5, 12)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                if result:
+                    id_width = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0][0]
+                    put_korean(frame, RESULT_TEXT[result], x1 + id_width + 6, y1 - FONT_SIZE - 8, color)
 
                 trail = trails.setdefault(r.track_id, [])
                 trail.append((f, (x1 + x2) // 2, y2))  # 박스 하단 중심점

@@ -7,7 +7,8 @@ ROI 밖까지 프레임 전체에서 블러한다. 끊긴 프레임은 앞뒤 �
 configs/eval.yaml의 blur_conf 기준으로 다시 검출해 얻는다(운전자 포함).
 
 입력: outputs/judged/<영상>.csv (구간·판정), outputs/tracks/<영상>.csv (해당 차량 궤적), 원본 영상(--video)
-출력: outputs/clips/<영상>_<event_id>.mp4, judged CSV의 clip 컬럼에 클립 경로를 채운다
+출력: outputs/clips/<영상>_<event_id>.webm, judged CSV의 clip 컬럼에 클립 경로를 채운다
+클립은 대시보드(브라우저)에서 바로 재생되도록 WebM(VP8)으로 저장한다. mp4v는 브라우저가 재생하지 못한다.
 
 지금은 1단계 미양보(no_yield)만 자른다. 미정지 클립은 MVP 뒤에 추가한다.
 클립 구간은 출구 횡단보도 진입 시각(t_enter_s) 앞뒤로 clip_pad_s(configs/eval.yaml)씩이다. tracks의 frame은 0부터 세는 프레임 번호로 본다.
@@ -37,7 +38,7 @@ def write_clip(
     cap = cv2.VideoCapture(video)
     fps = cap.get(cv2.CAP_PROP_FPS)
     size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-    writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
+    writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"VP80"), fps, size)
     if not writer.isOpened():
         raise RuntimeError(f"출력 영상을 열 수 없다: {out_path}")
 
@@ -84,7 +85,7 @@ def make_clips(
             detect_boxes(video, detect_cfg, eval_cfg["blur_conf"], start, end),
             int(eval_cfg["blur_interp_max_s"] * fps),
         )
-        out_path = out / f"{Path(video).stem}_{r.event_id}.mp4"
+        out_path = out / f"{Path(video).stem}_{r.event_id}.webm"
         write_clip(
             video, start, end, blur_boxes, tracks_df[tracks_df["track_id"] == r.track_id], eval_cfg, str(out_path)
         )
