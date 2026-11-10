@@ -19,6 +19,7 @@ VEHICLE_TYPE = {"car": "승용", "bus": "버스", "truck": "트럭", "motorcycle
 
 def judge_ped(peds_lost: int, peds_at_entry: int, camera_moved: bool) -> tuple[str, str]:
     """이벤트 1건의 (ped_result, ped_exclude_reason).
+    peds_at_entry·peds_lost는 경로상 횡단보도 전부의 합이다(features.build). no_yield_at은 judged에 그대로 남는다.
     진입 순간 횡단보도 위에 보행자가 있으면 미양보, 없으면 양보(위반 아님).
     보행자가 보이면 가림 여부와 관계없이 미양보다. 보이지 않는데 가림이 의심되면 제외한다."""
     if camera_moved:

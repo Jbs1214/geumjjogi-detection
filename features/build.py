@@ -1,7 +1,8 @@
 # 담당: 김민영
 """이벤트마다 속도·거리·횡단보도 위 보행자 특징을 계산한다.
-1단계는 횡단보도 진입 순간(t_enter_s)만 본다: 그때 횡단보도 위 보행자 수(peds_at_entry)와,
-진입 직전 merge_gap_s 안에 횡단보도 경계에서 occluded_edge_m보다 안쪽에서 끊긴 보행자 트랙 수(peds_lost, 가림 의심).
+1단계는 경로상 각 횡단보도(crosswalk = exit, other_crosswalks_px)에 차량이 진입하는 순간만 본다:
+그 위 보행자 수의 합(peds_at_entry), 보행자가 있던 횡단보도 이름(no_yield_at),
+진입 직전 merge_gap_s 안에 그 횡단보도 경계에서 occluded_edge_m보다 안쪽에서 끊긴 보행자 트랙 수의 합(peds_lost, 가림 의심).
 
 입력: outputs/events/<영상>.csv, outputs/tracks/<영상>.csv, configs/site_<영상>.yaml,
       outputs/signal/<영상>.csv (2단계, 정지선 통과 시각의 신호 상태 조회)

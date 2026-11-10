@@ -34,7 +34,7 @@
 | --- | --- |
 | `video`, `event_id`, `track_id`, `cls` | 식별 |
 | `coco_cls` | 트랙의 COCO 클래스 최빈값 (`car` / `bus` / `truck` / `motorcycle`) |
-| `t_enter_s` | 횡단보도 영역에 진입한 시각 (박스 하단 중심점 기준) |
+| `t_enter_s` | 출구 횡단보도 영역에 진입한 시각 (박스 하단 중심점 기준). 이벤트의 기준 시각 |
 | `t_stopline_s` | 정지선(없으면 진입 쪽 횡단보도 앞 기준선)을 통과한 시각. 궤적 전체에서 찾는다 (2단계) |
 
 ## 3. signal — `outputs/signal/<video>.csv` (김민영, `traffic_light.color`)
@@ -54,8 +54,9 @@ events의 컬럼 전부 + 아래 컬럼. MVP에서는 시계열을 요약값으�
 | 컬럼 | 단위 | 뜻 |
 | --- | --- | --- |
 | `entry_speed` | m/s | 진입 시점 속도 (참고값) |
-| `peds_lost` | 명 | 진입 직전 `merge_gap_s` 안에 횡단보도 경계에서 `occluded_edge_m`보다 안쪽에서 끊긴 보행자 트랙 수 (1 이상이고 `peds_at_entry`가 0이면 가림 의심 → 제외) |
-| `peds_at_entry` | 명 | 진입 시점(`t_enter_s`)에 횡단보도 위에 있던 보행자 수 (1 이상이면 미양보, 0이면 양보) |
+| `peds_lost` | 명 | 경로상 각 횡단보도 진입 직전 `merge_gap_s` 안에, 그 횡단보도 경계에서 `occluded_edge_m`보다 안쪽에서 끊긴 보행자 트랙 수의 합 (1 이상이고 `peds_at_entry`가 0이면 가림 의심 → 제외) |
+| `peds_at_entry` | 명 | 경로상 각 횡단보도(`crosswalk`=`exit`, `other_crosswalks_px`)에 차량이 진입한 순간 그 위에 있던 보행자 수의 합 (1 이상이면 미양보, 0이면 양보) |
+| `no_yield_at` | - | 진입 순간 보행자가 있던 횡단보도 이름 (`exit` 또는 `other_crosswalks_px`의 이름, 여러 개면 `;`로 구분, 없으면 비움) |
 | `signal_at_stopline` | - | 정지선 통과 시각의 신호 상태 (`red` / `not_red` / `unknown`) |
 | `stop_sec_before_line` | s | 정지선 앞 `stopline_zone_m` 안에서 정지 기준을 채운 가장 긴 시간 (2단계, `stop_min_duration_s` 이상이면 일시정지) |
 

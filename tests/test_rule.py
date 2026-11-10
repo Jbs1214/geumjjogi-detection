@@ -47,6 +47,7 @@ class JudgeFileTest(unittest.TestCase):
             "t_enter_s": [15.0, 101.0, 3700.0],
             "peds_lost": [0, 0, 0],
             "peds_at_entry": [1, 1, 0],
+            "no_yield_at": ["near", "exit", ""],
         })
         site = {"site": "A", "camera_moved_s": [[100.0, 120.0]]}
         with tempfile.TemporaryDirectory() as tmp:
@@ -65,6 +66,7 @@ class JudgeFileTest(unittest.TestCase):
         self.assertEqual(list(out["intersection"]), ["A"] * 3)
         self.assertEqual(list(out["status"]), ["auto"] * 3)
         self.assertEqual(list(out["clip"]), [""] * 3)
+        self.assertEqual(list(out["no_yield_at"]), ["near", "exit", ""])  # 어느 횡단보도에서 위반했는지 남는다
 
 
 if __name__ == "__main__":
