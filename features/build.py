@@ -1,8 +1,8 @@
 # 담당: 김민영
-"""이벤트마다 속도·거리·충돌 구간 보행자 특징을 계산한다.
+"""이벤트마다 속도·거리·횡단보도 위 보행자 특징을 계산한다.
 
 입력: outputs/events/<영상>.csv, outputs/tracks/<영상>.csv, configs/site_<교차로>.yaml
-출력: outputs/features/<영상>.csv (컬럼은 docs/csv_schema.md 3절)
+출력: outputs/features/<영상>.csv (컬럼은 docs/csv_schema.md 4절)
 """
 import argparse
 

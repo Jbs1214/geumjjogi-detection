@@ -18,5 +18,5 @@ def kappa(labels_a: list[str], labels_b: list[str]) -> float:
 
 
 def yield_rate_error(gt_rate: float, pred_rate: float) -> float:
-    """양보율 추정 오차 (%p)."""
+    """위반율 추정 오차 (%p)."""
     raise NotImplementedError
