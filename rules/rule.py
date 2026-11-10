@@ -4,12 +4,69 @@
 입력: outputs/features/<영상>.csv, configs/site_<영상>.yaml (정지 기준값, stopline_zone_m, right_turn_signal, camera_moved_s)
 제외 사유 값은 docs/csv_schema.md 5절 (no_ped·occluded·camera_moved / signal_unknown·stopline_hidden·rturn_signal·camera_moved)
 출력: outputs/judged/<영상>.csv (컬럼은 docs/csv_schema.md 5절)
+
+지금은 1단계(보행자)만 판정한다. 2단계 컬럼(red_result, red_exclude_reason)은 MVP 뒤에 추가한다.
 """
 import argparse
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+import yaml
+
+VEHICLE_TYPE = {"car": "승용", "bus": "버스", "truck": "트럭", "motorcycle": "오토바이"}
 
 
-def judge(features: str, site: str) -> None:
-    raise NotImplementedError
+def judge_ped(n_ped_max: int, peds_lost: int, peds_at_entry: int, camera_moved: bool) -> tuple[str, str]:
+    """이벤트 1건의 (ped_result, ped_exclude_reason)."""
+    if camera_moved:
+        return "exclude", "camera_moved"
+    if n_ped_max == 0:
+        return "exclude", "no_ped"
+    if peds_lost >= 1:
+        return "exclude", "occluded"
+    if peds_at_entry >= 1:
+        return "no_yield", ""
+    return "yield", ""
+
+
+def in_camera_moved(t_approach_s: float, t_enter_s: float, intervals: list) -> bool:
+    """이벤트 구간(접근~진입)이 카메라가 움직인 구간과 겹치는가."""
+    return any(t_approach_s <= end and t_enter_s >= start for start, end in intervals)
+
+
+def judge(features: str, site: str, out_dir: str = "outputs/judged") -> None:
+    df = pd.read_csv(features, encoding="utf-8-sig")
+    with open(site, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+
+    video = Path(features).stem  # 예: A_20261031_0800
+    start = datetime.strptime(video.split("_", 1)[1], "%Y%m%d_%H%M")
+    wall = start + pd.to_timedelta(df["t_enter_s"], unit="s")
+
+    df["intersection"] = cfg["site"]
+    df["wall_time"] = wall.dt.strftime("%Y-%m-%d %H:%M:%S")
+    df["slot"] = wall.dt.hour.map(lambda h: f"{h:02d}–{h + 1:02d}시")
+    df["vehicle_type"] = df["coco_cls"].map(VEHICLE_TYPE)
+
+    results = [
+        judge_ped(
+            r.n_ped_max,
+            r.peds_lost,
+            r.peds_at_entry,
+            in_camera_moved(r.t_approach_s, r.t_enter_s, cfg["camera_moved_s"]),
+        )
+        for r in df.itertuples()
+    ]
+    df[["ped_result", "ped_exclude_reason"]] = pd.DataFrame(
+        results, columns=["ped_result", "ped_exclude_reason"], index=df.index
+    )
+    df["status"] = "auto"
+    df["clip"] = ""
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out / f"{video}.csv", index=False, encoding="utf-8-sig")
 
 
 def main() -> None:
