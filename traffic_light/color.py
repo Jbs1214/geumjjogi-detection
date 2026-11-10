@@ -3,7 +3,7 @@
 연속 signal_min_frames 프레임이 같을 때만 상태를 바꾼다(초기값 5).
 보행자 신호등은 쓰지 않는다.
 
-입력: 원본 영상(--video), configs/site_<교차로>.yaml (signal_roi_px, signal_min_frames)
+입력: 원본 영상(--video), configs/site_<영상>.yaml (signal_roi_px, signal_min_frames)
 출력: outputs/signal/<영상>.csv (컬럼은 docs/csv_schema.md 3절, 영상 전체의 빨간불 시간표)
 """
 import argparse
