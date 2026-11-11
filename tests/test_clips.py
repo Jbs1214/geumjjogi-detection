@@ -63,16 +63,16 @@ class MakeClipsTest(unittest.TestCase):
                     str(tmp / "eval.yaml"), str(tmp / "detect.yaml"), str(tmp / "clips"),
                 )
 
-            self.assertEqual(sorted(p.name for p in (tmp / "clips").iterdir()), ["v_1.mp4", "v_3.mp4"])
+            self.assertEqual(sorted(p.name for p in (tmp / "clips").iterdir()), ["v_1.webm", "v_3.webm"])
             # 이벤트 1: 2.0초 ± 0.5초 → 프레임 15~25, 11장
-            self.assertEqual(count_frames(tmp / "clips" / "v_1.mp4"), 11)
+            self.assertEqual(count_frames(tmp / "clips" / "v_1.webm"), 11)
             # 이벤트 3: 4.75초 ± 0.5초는 영상 끝(프레임 50)을 넘으므로 프레임 42~49, 8장으로 잘린다
-            self.assertEqual(count_frames(tmp / "clips" / "v_3.mp4"), 8)
+            self.assertEqual(count_frames(tmp / "clips" / "v_3.webm"), 8)
 
             out = pd.read_csv(tmp / "judged.csv", encoding="utf-8-sig", keep_default_na=False)
-            self.assertTrue(out["clip"][0].endswith("clips/v_1.mp4"))
+            self.assertTrue(out["clip"][0].endswith("clips/v_1.webm"))
             self.assertEqual(out["clip"][1], "")
-            self.assertTrue(out["clip"][2].endswith("clips/v_3.mp4"))
+            self.assertTrue(out["clip"][2].endswith("clips/v_3.webm"))
 
 
 if __name__ == "__main__":
