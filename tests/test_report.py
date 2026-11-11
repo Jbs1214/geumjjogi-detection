@@ -37,6 +37,11 @@ class WilsonTest(unittest.TestCase):
     def test_zero_n(self):
         self.assertTrue(all(math.isnan(v) for v in wilson_ci(0, 0)))
 
+    def test_stays_within_0_and_1(self):
+        # 미양보 0건·전부 미양보일 때 계산 오차로 -1.4e-17, 1.0000000000000002가 나오던 건수
+        self.assertEqual(wilson_ci(0, 15)[0], 0.0)
+        self.assertEqual(wilson_ci(5, 5)[1], 1.0)
+
 
 class RateTableTest(unittest.TestCase):
     def test_counts_and_reference_note(self):
