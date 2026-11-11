@@ -20,6 +20,7 @@ import yaml
 from PIL import Image, ImageDraw, ImageFont
 
 from eval.blur import Box, blur_frame, detect_boxes, fill_gaps, print_progress
+from tracking.events import exit_area
 
 # 표시용 값 (판정 기준이 아님)
 TRAIL_S = 2.0        # 궤적을 그리는 길이
@@ -70,8 +71,8 @@ def render(
     if not writer.isOpened():
         raise RuntimeError(f"출력 영상을 열 수 없다: {out_path}")
 
-    # 출구 횡단보도 + 우회전 경로가 지나는 다른 횡단보도
-    crosswalks = [site_cfg["crosswalk"]["corners_px"], *site_cfg.get("other_crosswalks_px", {}).values()]
+    # 출구 횡단보도(판정 영역: area_px, 없으면 corners_px) + 우회전 경로가 지나는 다른 횡단보도
+    crosswalks = [exit_area(site_cfg), *site_cfg.get("other_crosswalks_px", {}).values()]
     crosswalks = [np.array(c, np.int32) for c in crosswalks]
     rows_by_frame = {f: g for f, g in tracks.groupby("frame")}
     trail_frames = int(TRAIL_S * fps)

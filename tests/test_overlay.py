@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import cv2
 import numpy as np
@@ -67,6 +68,19 @@ class RenderTest(unittest.TestCase):
             write_video(src)
             render(str(src), [], tracks, judged, SITE_CFG, EVAL_CFG, str(out))
             self.assertEqual(len(read_frames(out)), N_FRAMES)
+
+    def test_draws_area_px_when_given(self):
+        area = [[20, 60], [150, 55], [140, 100], [20, 100], [10, 80]]
+        site = {**SITE_CFG, "crosswalk": {**SITE_CFG["crosswalk"], "area_px": area}}
+        tracks = pd.DataFrame(columns=["frame", "track_id", "cls", "x1", "y1", "x2", "y2"])
+        judged = pd.DataFrame(columns=["track_id", "t_enter_s", "ped_result"])
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out = Path(tmp) / "src.mp4", Path(tmp) / "out.mp4"
+            write_video(src)
+            with mock.patch("eval.overlay.cv2.polylines") as polylines:
+                render(str(src), [], tracks, judged, site, EVAL_CFG, str(out))
+        self.assertEqual(polylines.call_args_list[0].args[1][0].tolist(), area)
+
 
 
 if __name__ == "__main__":

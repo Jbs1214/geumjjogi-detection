@@ -28,7 +28,7 @@ def wilson_ci(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     p = k / n
     center = (p + z * z / (2 * n)) / (1 + z * z / n)
     half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
-    return center - half, center + half
+    return max(center - half, 0.0), min(center + half, 1.0)  # 계산 오차로 0~1을 벗어나지 않게
 
 
 def violation_rate(results: pd.Series) -> float:
