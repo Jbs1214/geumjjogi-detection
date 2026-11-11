@@ -5,7 +5,7 @@ dependencies:
   - python=3.11
   - pip
   - pip:
-    # GTX 10xx ~ RTX 40xx: cu118 / RTX 5090: change the 3 torch lines to a cu128 build
+    # GTX 10xx ~ RTX 40xx and the academy server (L40S): cu118
     # Keep this file ASCII-only: conda on Korean Windows reads it as cp949
     - --extra-index-url https://download.pytorch.org/whl/cu118
     - torch==2.7.1+cu118
