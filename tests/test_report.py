@@ -86,6 +86,23 @@ class ReportFileTest(unittest.TestCase):
         self.assertEqual(kappas.loc[0, "n_both"], 4)
         self.assertAlmostEqual(kappas.loc[0, "kappa"], 0.5)
 
+    def test_labels_without_judged_or_match(self):
+        judged = make_judged()
+        cols = {"cls": "vehicle", "ped_label": "yield"}
+        with tempfile.TemporaryDirectory() as tmp:
+            # 아직 판정 결과가 없는 영상의 라벨표 → 지표 표에서 건너뛴다
+            pd.DataFrame({"video": ["A_20261031_2000"], "event_id": [1], "t_enter_s": [10.0], "labeler": "a", **cols}).to_csv(
+                Path(tmp) / "A_20261031_2000_a.csv", index=False, encoding="utf-8-sig")
+            # 판정 결과는 있는데 짝이 하나도 없는 라벨표(시각이 어긋남) → 재현율 0, F1은 nan
+            pd.DataFrame({"video": ["A_20261031_0800"], "event_id": [1], "t_enter_s": [30.0], "labeler": "b", **cols}).to_csv(
+                Path(tmp) / "A_20261031_0800_b.csv", index=False, encoding="utf-8-sig")
+            metrics, _ = evaluate(judged, tmp, CFG)
+        self.assertEqual(metrics["labeler"].tolist(), ["b"])
+        self.assertEqual(metrics.loc[0, "extraction_recall"], 0.0)
+        self.assertTrue(math.isnan(metrics.loc[0, "no_yield_f1"]))
+        self.assertTrue(math.isnan(metrics.loc[0, "f1_ci_low"]))
+
+
 
 if __name__ == "__main__":
     unittest.main()
