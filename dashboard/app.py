@@ -131,7 +131,7 @@ def main(judged_dir: str = "outputs/judged", config: str = "configs/eval.yaml") 
         with st.expander(f"클립 보기 ({len(clips)}개)"):
             for clip in clips:
                 if Path(clip).exists():
-                    st.video(clip)
+                    st.video(clip, format="video/webm")  # eval.clips가 WebM(VP8)으로 저장한다
                 else:
                     st.caption(f"파일 없음: {clip}")
 
