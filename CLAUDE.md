@@ -66,7 +66,7 @@
 
 ## 환경
 
-- conda 환경 `geumjjogi-detection`(Python 3.11). 학습은 팀 GPU(GTX 1060, 학원 서버 RTX 5090)로 한다.
+- conda 환경 `geumjjogi-detection`(Python 3.11). 학습은 팀 GPU(GTX 1060, 학원 서버 L40S 46GB)로 한다.
 - 환경은 `conda env create -f environment.yml`로 만들고, 바뀐 뒤에는 `conda env update -f environment.yml --prune`을 쓴다. `conda env export` 결과는 커밋하지 않는다.
 - `environment.yml`·`requirements.txt`에는 한글을 쓰지 않는다(한글 Windows의 conda가 cp949로 읽다가 멈춘다).
 - torch는 `environment.yml`에만 적고, 나머지 라이브러리 버전은 `requirements.txt` 한 곳에서 고정한다.

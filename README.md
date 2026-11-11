@@ -20,7 +20,7 @@ python check_env.py                     # 모두 [OK]면 성공
 ```
 
 - 다른 사람이 `environment.yml`·`requirements.txt`를 바꾼 뒤에는 `conda env update -f environment.yml --prune`으로 맞춥니다.
-- RTX 5090(학원 서버)에서는 `environment.yml`의 torch 세 줄을 cu128 빌드로 바꿉니다(서버 제공 시 확정).
+- 학원 서버(L40S 46GB)도 cu118 빌드를 그대로 씁니다. 서버에서 `import cv2`가 `libGL.so.1` 오류를 내면 `opencv-python`을 지우고 같은 버전의 `opencv-python-headless`를 설치합니다.
 
 **`conda env create`가 `This program is blocked by group policy`로 실패할 때 (학원 PC)**
 
@@ -85,8 +85,7 @@ torch는 GPU마다 빌드가 달라 `environment.yml`에만 적습니다.
 
 | GPU | `environment.yml`의 torch 줄 |
 | --- | --- |
-| GTX 1060 (현재 PC) | `--extra-index-url .../whl/cu118`, `torch==2.7.1+cu118`, `torchvision==0.22.1+cu118` |
-| RTX 5090 (학원 서버) | cu128 빌드 — 서버 제공 시 버전 확정 |
+| GTX 1060 (현재 PC), L40S 46GB (학원 서버) | `--extra-index-url .../whl/cu118`, `torch==2.7.1+cu118`, `torchvision==0.22.1+cu118` |
 
 ## 쓰지 않기로 한 라이브러리
 
