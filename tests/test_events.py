@@ -86,6 +86,13 @@ class LinkBrokenTest(unittest.TestCase):
         ev = linked(broken())
         self.assertEqual(list(ev["track_id"]), [2])
         self.assertAlmostEqual(ev["t_enter_s"].iloc[0], 1.2)
+        self.assertEqual(ev["link_track_id"].iloc[0], 1)                  # 앞 트랙 id를 남김
+
+    def test_normal_event_has_no_link(self):
+        df = pd.concat([path(1, RIGHT_TURN), broken().assign(track_id=lambda d: d.track_id + 10)])
+        ev = linked(df).set_index("track_id")["link_track_id"]
+        self.assertTrue(pd.isna(ev[1]))
+        self.assertEqual(ev[12], 11)
 
     def test_off_by_default(self):
         self.assertTrue(find_events(broken(), APPROACH, EXIT).empty)
