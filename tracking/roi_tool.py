@@ -40,8 +40,8 @@ STEPS = [
      "출구 판정 영역(선택): 사각형 밖으로 나온 블록(둥근 연석 쪽 등)까지 보이는 블록 전체 테두리 3점 이상 → Enter. "
      "사각형과 같으면 s"),
     ("other_crosswalks_px", None, True, "OTHER CROSSWALKS on the path",
-     "visible part, 3+ points > Enter > name in terminal. Done: Enter (0 points)",
-     "출구 말고 우회전 차가 지나는 횡단보도(진입 쪽·대각선 등). 보이는 부분만 3점 이상 → Enter → 터미널에 이름. "
+     "stripes only (no sidewalk), 3+ points > Enter > name in terminal. Done: Enter (0 points)",
+     "출구 말고 우회전 차가 지나는 횡단보도(진입 쪽·대각선 등). 보이는 부분의 블록(줄무늬)만 감싸서(인도 제외) 3점 이상 → Enter → 터미널에 이름. "
      "다 찍었으면 점 없이 Enter, 하나도 없으면 s"),
     ("approach_roi_px", 4, False, "APPROACH (lane past stop line to turn)", "4 points around the right-turn path",
      "우회전 진입로 영역 4점 (우회전 차로부터 정지선을 지나 꺾기 시작하는 곳까지, 우회전 경로만)"),
