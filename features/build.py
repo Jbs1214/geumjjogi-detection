@@ -5,6 +5,7 @@
 진입 직전 merge_gap_s 안에 그 횡단보도 경계에서 occluded_edge_m보다 안쪽에서 끊긴 보행자 트랙 수의 합(peds_lost, 가림 의심).
 
 진입 순간: 출구는 이벤트의 t_enter_s, 다른 횡단보도는 그 차량 트랙이 출구 진입 전에 처음 들어간 프레임.
+끊긴 트랙을 이어 본 이벤트(events의 link_track_id)는 앞 트랙 경로까지 합쳐서 본다(경로상 횡단보도 전부, 기술서 11.1).
 차가 들어가지 않은 횡단보도는 세지 않는다. 점은 박스 하단 중심(픽셀), 출구 영역은 area_px(없으면 corners_px).
 그 프레임에 검출이 빠진 보행자 트랙은 앞뒤 행 간격이 merge_gap_s 이하이면 직선 보간한 위치로 센다
 (검출이 잠깐 빠진 순간 서 있던 보행자가 0명으로 세어지지 않게. 트랙 이어 붙이기와 같은 기준).
@@ -87,7 +88,7 @@ def build_features(events: str, tracks: str, site: str, signal: str | None = Non
         cfg = yaml.safe_load(f)
     with open(site, encoding="utf-8") as f:
         s = yaml.safe_load(f)
-    ev = pd.read_csv(events, encoding="utf-8-sig")
+    ev = pd.read_csv(events, encoding="utf-8-sig", dtype={"link_track_id": "Int64"})  # 빈칸 때문에 float(26069.0)로 저장되지 않게
     tr = pd.read_csv(tracks, encoding="utf-8-sig")
     tr = tr.assign(cx=(tr["x1"] + tr["x2"]) / 2).sort_values(["track_id", "frame"])
     fps = (tr["frame"] / tr["t_s"])[tr["t_s"] > 0].median()
@@ -99,14 +100,16 @@ def build_features(events: str, tracks: str, site: str, signal: str | None = Non
     polys_m = {k: to_meters(H, np.array(p, dtype=float)).astype(np.float32) for k, p in polys.items()}
     peds = tr[tr["cls"] == "pedestrian"]
     ends = peds.groupby("track_id").tail(1)
-    vehicles = dict(tuple(tr[tr["track_id"].isin(ev["track_id"])].groupby("track_id")))
+    links = ev["link_track_id"] if "link_track_id" in ev else pd.Series(np.nan, index=ev.index)  # 컬럼 추가 전 events도 읽음
+    vehicles = dict(tuple(tr[tr["track_id"].isin(ev["track_id"]) | tr["track_id"].isin(links.dropna())].groupby("track_id")))
 
     rows = []
-    for e in ev.itertuples():
+    for e, link in zip(ev.itertuples(), links):
         v = vehicles[e.track_id]
         exit_frame = int(v["frame"].iloc[(v["t_s"] - e.t_enter_s).abs().argmin()])
+        path = v if pd.isna(link) else pd.concat([vehicles[int(link)], v])  # 속도는 이벤트 트랙만으로
         lost, at, names = 0, 0, []
-        for name, frame in sorted(vehicle_entries(v, polys, exit_frame).items(), key=lambda kv: kv[1]):
+        for name, frame in sorted(vehicle_entries(path, polys, exit_frame).items(), key=lambda kv: kv[1]):
             pos = ped_positions_at(peds, frame, gap)
             n = int(inside(polys[name], pos["x"], pos["y"]).sum())
             at += n

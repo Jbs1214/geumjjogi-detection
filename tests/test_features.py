@@ -40,11 +40,11 @@ EVENTS = pd.DataFrame({"video": ["A_20261031_0800"], "event_id": [1], "track_id"
                        "coco_cls": ["car"], "t_enter_s": [2.5], "t_stopline_s": [np.nan]})
 
 
-def run(*peds, signal=None):
+def run(*peds, signal=None, car=CAR, events=EVENTS):
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
-        pd.concat([CAR, *peds]).to_csv(d / "tracks.csv", index=False, encoding="utf-8-sig")
-        EVENTS.to_csv(d / "A_20261031_0800.csv", index=False, encoding="utf-8-sig")
+        pd.concat([car, *peds]).to_csv(d / "tracks.csv", index=False, encoding="utf-8-sig")
+        events.to_csv(d / "A_20261031_0800.csv", index=False, encoding="utf-8-sig")
         (d / "site.yaml").write_text(yaml.safe_dump(SITE), encoding="utf-8")
         (d / "detect.yaml").write_text(yaml.safe_dump(CONFIG), encoding="utf-8")
         out = build_features(str(d / "A_20261031_0800.csv"), str(d / "tracks.csv"), str(d / "site.yaml"),
@@ -79,6 +79,21 @@ class PedsAtEntryTest(unittest.TestCase):
     def test_two_crosswalks_summed_in_time_order(self):
         r = run(track(101, "pedestrian", range(61), (50, 80)), track(103, "pedestrian", range(11), (250, 80)))
         self.assertEqual((r["peds_at_entry"], r["no_yield_at"]), (2, "near;exit"))
+
+
+class LinkedEventTest(unittest.TestCase):
+    """같은 차가 near를 지난 뒤 끊겨(트랙 1: frame 0~12) 다른 트랙(2: frame 16~40)으로 출구에 들어간 이벤트."""
+    BROKEN = pd.concat([CAR[CAR.frame <= 12], CAR[CAR.frame >= 16].assign(track_id=2)])
+    PED = track(103, "pedestrian", range(11), (250, 80))                    # near 진입(frame 5) 때만 있음
+
+    def test_near_seen_through_linked_track(self):
+        ev = EVENTS.assign(track_id=2, link_track_id=1)
+        r = run(self.PED, car=self.BROKEN, events=ev)
+        self.assertEqual((r["peds_at_entry"], r["no_yield_at"]), (1, "near"))
+
+    def test_without_link_near_is_missed(self):
+        r = run(self.PED, car=self.BROKEN, events=EVENTS.assign(track_id=2, link_track_id=np.nan))
+        self.assertEqual(r["peds_at_entry"], 0)
 
 
 class PedsLostTest(unittest.TestCase):

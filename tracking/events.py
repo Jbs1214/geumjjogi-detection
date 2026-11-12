@@ -6,6 +6,7 @@
 점은 박스 하단 중심(픽셀). ROI가 픽셀 다각형이라 미터로 바꾸지 않고 픽셀에서 본다.
 출구 영역은 crosswalk.area_px(보이는 블록 전체), 비어 있으면 corners_px.
 t_stopline_s는 2단계 컬럼이라 지금은 비워 둔다(MVP 먼저).
+끊긴 트랙을 이어 본 이벤트(link_broken)는 link_track_id에 앞 트랙 id를 남긴다(나머지는 비움).
 카메라가 움직인 구간(camera_moved_s)은 여기서 거르지 않는다(rules.rule이 제외로 판정한다).
 
 입력: outputs/tracks/<영상>.csv, configs/site_<영상>.yaml
@@ -19,7 +20,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-COLUMNS = ["video", "event_id", "track_id", "cls", "coco_cls", "t_enter_s", "t_stopline_s"]
+COLUMNS = ["video", "event_id", "track_id", "cls", "coco_cls", "t_enter_s", "t_stopline_s", "link_track_id"]
 VEHICLES = ("vehicle", "motorcycle")
 
 
@@ -36,10 +37,11 @@ def exit_area(site: dict) -> list:
 
 
 def link_broken(v: pd.DataFrame, in_a: np.ndarray, in_e: np.ndarray, events: pd.Index,
-                gap_s: float, dist_box: float) -> pd.Series:
+                gap_s: float, dist_box: float) -> pd.DataFrame:
     """진입로를 지났지만 출구에 안 간 트랙 A와, 진입로 없이 출구에 들어간 트랙 B가 끊긴 같은 차면 B를 우회전으로 본다.
     B는 A가 끝난 뒤 gap_s 안에, A 마지막 박스 폭 × dist_box 픽셀 안에서 시작해야 한다(같은 cls, 1:1, 가까운 쌍부터).
-    정지선 근처는 출구 사각형에서 멀어 미터 거리가 부풀므로 픽셀로 본다. 돌려주는 값: {B track_id: 출구 첫 진입 t_s}."""
+    정지선 근처는 출구 사각형에서 멀어 미터 거리가 부풀므로 픽셀로 본다.
+    돌려주는 값: B track_id 인덱스, t_enter_s(출구 첫 진입 t_s)·link_track_id(A). features가 A 경로의 횡단보도도 본다."""
     g = v.sort_values("frame").groupby("track_id")
     first, last = g.first(), g.last()
     passed_a = set(v.loc[in_a, "track_id"])
@@ -61,8 +63,9 @@ def link_broken(v: pd.DataFrame, in_a: np.ndarray, in_e: np.ndarray, events: pd.
     for d, a, b in sorted(pairs):
         if a not in used_a and b not in linked:
             used_a.add(a)
-            linked[b] = exit_t[b]
-    return pd.Series(linked, dtype=float)
+            linked[b] = (exit_t[b], a)
+    return pd.DataFrame(list(linked.values()), columns=["t_enter_s", "link_track_id"],
+                        index=pd.Index(list(linked), name="track_id"))
 
 
 def find_events(df: pd.DataFrame, approach: list, exit_poly: list,
@@ -79,8 +82,8 @@ def find_events(df: pd.DataFrame, approach: list, exit_poly: list,
     if link_gap_s > 0:
         linked = link_broken(v, in_a, in_e, out.index, link_gap_s, link_dist_box)
         cls = v.groupby("track_id")["cls"].first()
-        out = pd.concat([out, pd.DataFrame({"cls": linked.index.map(cls), "t_enter_s": linked.values},
-                                           index=pd.Index(linked.index, name="track_id"))])
+        out = pd.concat([out, linked.assign(cls=linked.index.map(cls))])
+    out["link_track_id"] = out.get("link_track_id", pd.Series(dtype="Int64")).astype("Int64")  # 이어 보지 않은 이벤트는 비움
     mode = v.groupby("track_id")["coco_cls"].agg(lambda s: s.mode().iloc[0])  # 트랙 전체 최빈값
     out["coco_cls"] = out.index.map(mode)  # Series를 바로 넣으면 out이 비었을 때 mode의 행이 새로 생긴다
     return out.reset_index().sort_values(["t_enter_s", "track_id"], ignore_index=True)
