@@ -12,6 +12,8 @@ merge_dist_m: 1.5        # 이어 붙이는 최대 거리 (미터 좌표)
 merge_overlap_s: 0.5     # 앞 트랙이 끝나기 전 이 시간 안에 시작한 트랙도 이어 붙임 (시간이 겹쳐 ID가 바뀐 경우)
 merge_overlap_iou: 0.5   # 겹친 프레임에서 두 박스 평균 IoU가 이 값 이상일 때만 (줄 선 다른 차·옆 사람을 잇지 않게)
 merge_overlap_classes: [vehicle]  # 겹침 이어 붙이기를 쓰는 클래스(vehicle·motorcycle·pedestrian). 차량만: 영상 전체에서 실제 우회전 +1(9:03)·이벤트 오추출 0, 트랙 오병합 1/6은 이벤트 영향 없음 (docs/experiments.md 261111). pedestrian은 켤 때 peds_lost 영향을 따로 잰다
+link_gap_s: 3.0          # 우회전 이벤트: 진입로에서 끊긴 트랙 뒤 이 시간 안에 시작해 출구에 들어간 트랙도 같은 차로 봄 (정지선 근처 검출 공백 2~3초). 0이면 끔
+link_dist_box: 2.0       # 위 이어 보기의 최대 거리 = 끊긴 트랙 마지막 박스 폭 × 이 값 (픽셀). A 오류 분석(261112)을 보고 넣음, 값은 측정 전 고정 (docs/experiments.md)
 speed_window_s: 0.5      # 미터 좌표 이동평균 창 (속도 계산)
 
 # COCO 클래스 → 프로젝트 클래스 (여기 없는 클래스는 버림)
