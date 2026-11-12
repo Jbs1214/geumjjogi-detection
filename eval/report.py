@@ -81,17 +81,21 @@ def evaluate(judged: pd.DataFrame, labels_dir: str, cfg: dict) -> tuple[pd.DataF
     rows = []
     for gt in labels.values():
         video = gt["video"].iloc[0]
+        if video not in judged["video"].values:
+            continue  # 아직 판정 결과가 없는 영상의 라벨표
         pairs = match_events(gt, judged, cfg["match_window_s"])
         y_true = [gt.loc[i, "ped_label"] for i, _ in pairs]
         y_pred = [judged.loc[j, "ped_result"] for _, j in pairs]
-        ci_low, ci_high = bootstrap_ci(y_true, y_pred, cfg["bootstrap_n"])
+        # 짝이 하나도 없으면 F1을 계산할 수 없다(재현율 0으로만 남긴다)
+        f1 = no_yield_f1(y_true, y_pred) if pairs else math.nan
+        ci_low, ci_high = bootstrap_ci(y_true, y_pred, cfg["bootstrap_n"]) if pairs else (math.nan, math.nan)
         rows.append({
             "video": video,
             "labeler": gt["labeler"].iloc[0],
             "n_label": len(gt),
             "n_reviewed": len(pairs),
             "extraction_recall": len(pairs) / len(gt),
-            "no_yield_f1": no_yield_f1(y_true, y_pred),
+            "no_yield_f1": f1,
             "f1_ci_low": ci_low,
             "f1_ci_high": ci_high,
             "rate_error_pp": yield_rate_error(
