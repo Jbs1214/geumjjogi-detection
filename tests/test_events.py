@@ -68,6 +68,53 @@ class FindEventsTest(unittest.TestCase):
         self.assertEqual(list(find_events(df, APPROACH, EXIT)["track_id"]), [2, 1])
 
 
+A_PART = [(150, 50), (150, 90)]       # 진입로 안에서 끝남 (박스 폭 10 → 이어 보기 거리 20 px)
+B_PART = [(150, 105), (50, 250)]      # 진입로 밖에서 시작해 출구로
+
+
+def broken(gap_s=1.0, b_start=(150, 105), cls_b="vehicle"):
+    """한 차가 진입로 끝(t 0.1)에서 끊기고 gap_s 뒤 b_start에서 다른 트랙으로 다시 잡힌 것."""
+    return pd.concat([path(1, A_PART), path(2, [b_start, (50, 250)], cls=cls_b, t0=0.1 + gap_s)])
+
+
+def linked(df):
+    return find_events(df, APPROACH, EXIT, link_gap_s=3.0, link_dist_box=2.0)
+
+
+class LinkBrokenTest(unittest.TestCase):
+    def test_broken_track_is_linked(self):
+        ev = linked(broken())
+        self.assertEqual(list(ev["track_id"]), [2])
+        self.assertAlmostEqual(ev["t_enter_s"].iloc[0], 1.2)
+        self.assertEqual(ev["link_track_id"].iloc[0], 1)                  # 앞 트랙 id를 남김
+
+    def test_normal_event_has_no_link(self):
+        df = pd.concat([path(1, RIGHT_TURN), broken().assign(track_id=lambda d: d.track_id + 10)])
+        ev = linked(df).set_index("track_id")["link_track_id"]
+        self.assertTrue(pd.isna(ev[1]))
+        self.assertEqual(ev[12], 11)
+
+    def test_off_by_default(self):
+        self.assertTrue(find_events(broken(), APPROACH, EXIT).empty)
+
+    def test_gap_too_long(self):
+        self.assertTrue(linked(broken(gap_s=3.5)).empty)
+
+    def test_too_far(self):
+        self.assertTrue(linked(broken(b_start=(150, 125))).empty)   # 35 px > 20 px
+
+    def test_other_class_not_linked(self):
+        self.assertTrue(linked(broken(cls_b="motorcycle")).empty)
+
+    def test_approach_track_already_event_not_reused(self):
+        df = pd.concat([path(1, RIGHT_TURN), path(2, B_PART, t0=0.5)])   # 1은 이미 우회전
+        self.assertEqual(list(linked(df)["track_id"]), [1])
+
+    def test_one_to_one_nearest(self):
+        df = pd.concat([path(1, A_PART), path(2, B_PART, t0=1.0), path(3, [(150, 101), (50, 250)], t0=1.0)])
+        self.assertEqual(list(linked(df)["track_id"]), [3])          # 3이 더 가까움(11 px < 15 px), 2는 짝 없음
+
+
 class ExitAreaTest(unittest.TestCase):
     def test_empty_area_falls_back_to_corners(self):
         self.assertEqual(exit_area({"crosswalk": {"corners_px": EXIT, "area_px": []}}), EXIT)
@@ -85,7 +132,9 @@ class ExtractEventsTest(unittest.TestCase):
             site = Path(d) / "site.yaml"
             site.write_text(yaml.safe_dump({"approach_roi_px": APPROACH,
                                             "crosswalk": {"corners_px": EXIT, "area_px": []}}), encoding="utf-8")
-            out = pd.read_csv(extract_events(str(tracks), str(site), out_dir=d), encoding="utf-8-sig")
+            config = Path(d) / "detect.yaml"
+            config.write_text(yaml.safe_dump({"link_gap_s": 3.0, "link_dist_box": 2.0}), encoding="utf-8")
+            out = pd.read_csv(extract_events(str(tracks), str(site), str(config), out_dir=d), encoding="utf-8-sig")
         self.assertEqual(list(out.columns), COLUMNS)
         self.assertEqual(list(out["event_id"]), [1, 2])
         self.assertEqual(list(out["track_id"]), [4, 7])

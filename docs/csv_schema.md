@@ -36,6 +36,7 @@
 | `coco_cls` | 트랙의 COCO 클래스 최빈값 (`car` / `bus` / `truck` / `motorcycle`) |
 | `t_enter_s` | 출구 횡단보도 영역에 진입한 시각 (박스 하단 중심점 기준). 이벤트의 기준 시각 |
 | `t_stopline_s` | 정지선(없으면 진입 쪽 횡단보도 앞 기준선)을 통과한 시각. 궤적 전체에서 찾는다 (2단계) |
+| `link_track_id` | 끊긴 트랙을 이어 본 이벤트(`link_gap_s`·`link_dist_box`)의 앞 트랙 id. 진입로를 지난 쪽이 이 트랙이고 `track_id`는 출구에 들어간 쪽. features는 두 트랙 경로를 합쳐 횡단보도 진입을 본다. 이어 보지 않은 이벤트는 비움 |
 
 ## 3. signal — `outputs/signal/<video>.csv` (김민영, `traffic_light.color`)
 
