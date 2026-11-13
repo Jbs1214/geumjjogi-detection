@@ -38,12 +38,13 @@ stop_line_px:
 - [1570, 464]
 - [1900, 515]
 signal_roi_px:
-- [1208, 402]
-- [1238, 396]
-- [1238, 407]
-- [1208, 415]
+- [1210, 403]
+- [1222, 403]
+- [1222, 412]
+- [1210, 412]
 stop_speed_mps: 0.5
 stop_min_duration_s: 1.0
 stopline_zone_m: 3.0
 occluded_edge_m: 1.0
-signal_min_frames: 5
+signal_min_frames: 30
+signal_red_ratio_min: 0.05

@@ -47,8 +47,8 @@ STEPS = [
      "우회전 진입로 영역 4점 (우회전 차로부터 정지선을 지나 꺾기 시작하는 곳까지, 우회전 경로만)"),
     ("stop_line_px", 2, True, "STOP LINE", "2 ends. No line: front edge of the entry crosswalk",
      "정지선 양 끝 2점 (2단계). 정지선이 없으면 진입 쪽 횡단보도 앞 가장자리 두 점. 2단계를 안 하면 s"),
-    ("signal_roi_px", 4, True, "TRAFFIC LIGHT (car, not pedestrian)", "4 points around the light",
-     "우회전 방향 차량 신호등 4점 (2단계, 보행자 신호등 아님, s로 건너뛰기)"),
+    ("signal_roi_px", 4, True, "TRAFFIC LIGHT (car, not pedestrian)", "4 points around the RED lamp only",
+     "우회전 방향 차량 신호등의 빨간 램프만 감싸는 4점 (초록·노랑 램프와 배경 제외. 2단계, 보행자 신호등 아님, s로 건너뛰기)"),
 ]
 COLORS = {"corners_px": (0, 255, 255), "area_px": (0, 140, 255), "other_crosswalks_px": (255, 200, 0), "approach_roi_px": (0, 255, 0),
           "stop_line_px": (0, 0, 255), "signal_roi_px": (255, 0, 255)}
