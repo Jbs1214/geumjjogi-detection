@@ -1,0 +1,49 @@
+# tracking.roi_tool 로 생성: A_20261031_2000.mp4
+site: A
+crosswalk:
+  corners_px:
+  - [1213, 540]
+  - [1386, 572]
+  - [642, 801]
+  - [493, 720]
+  area_px:
+  - [1328, 551]
+  - [1411, 566]
+  - [642, 800]
+  - [494, 722]
+  - [1212, 541]
+  - [1289, 557]
+  width_m: 7.97
+  length_m: 31.9
+other_crosswalks_px:
+  diag:
+  - [1394, 563]
+  - [1503, 566]
+  - [1661, 993]
+  - [1433, 1048]
+  near:
+  - [1494, 568]
+  - [1612, 537]
+  - [1883, 580]
+  - [1867, 638]
+camera_moved_s: []
+approach_roi_px:
+- [1799, 474]
+- [1860, 491]
+- [1479, 631]
+- [1429, 586]
+right_turn_signal: false
+stop_line_px:
+- [1646, 524]
+- [1823, 550]
+signal_roi_px:
+- [1246, 454]
+- [1259, 452]
+- [1260, 462]
+- [1248, 463]
+stop_speed_mps: 0.5
+stop_min_duration_s: 1.0
+stopline_zone_m: 3.0
+occluded_edge_m: 1.0
+signal_min_frames: 5
+signal_red_ratio_min: 0.05
