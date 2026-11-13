@@ -48,6 +48,7 @@ python -m rules.rule            --features outputs/features/<영상>.csv --site 
 python -m eval.report           --judged outputs/judged --labels data/labels      # 위반율 표·그래프
 python -m eval.clips            --judged outputs/judged/<영상>.csv --tracks outputs/tracks/<영상>.csv --video <영상>  # → outputs/clips/ (블러한 위반 의심 클립)
 python -m eval.overlay          --video <영상> --tracks outputs/tracks/<영상>.csv --judged outputs/judged/<영상>.csv --site configs/site_<영상>.yaml  # → outputs/overlay/ (블러한 분석 영상)
+python -m eval.blur_video       --video <영상>                                           # → outputs/blur/ (영상 전체 블러본, 판정 결과 없이 공유·발표용)
 streamlit run dashboard/app.py                                                          # 위반율 대시보드(읽기 전용)
 ```
 
