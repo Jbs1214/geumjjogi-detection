@@ -110,9 +110,14 @@ def evaluate(judged: pd.DataFrame, labels_dir: str, cfg: dict) -> tuple[pd.DataF
             ),
         }
         if has_red_judgment(judged):
-            row["not_stopped_f1"] = not_stopped_f1(
-                [gt.loc[i, "red_label"] for i, _ in pairs],
-                [judged.loc[j, "red_result"] for _, j in pairs],
+            r_true = [gt.loc[i, "red_label"] for i, _ in pairs]
+            r_pred = [judged.loc[j, "red_result"] for _, j in pairs]
+            row["not_stopped_f1"] = not_stopped_f1(r_true, r_pred)
+            # 짝지어진 라벨에 적색 판정 대상이 없으면 F1이 nan이라 구간도 낼 수 없다
+            row["red_f1_ci_low"], row["red_f1_ci_high"] = (
+                (math.nan, math.nan)
+                if math.isnan(row["not_stopped_f1"])
+                else bootstrap_ci(r_true, r_pred, cfg["bootstrap_n"], not_stopped_f1)
             )
         rows.append(row)
 
