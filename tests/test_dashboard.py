@@ -76,6 +76,41 @@ class AppSmokeTest(unittest.TestCase):
         self.assertEqual([m.value for m in at.metric], ["83건", "33건", "39.8%"])
         self.assertEqual(len(at.dataframe), 1)
 
+    def run_with_red(self, kind):
+        """make_judged에 적색 판정을 붙인다: 83건 중 미정지 20, 일시정지 30, 나머지 na."""
+        judged = make_judged().assign(red_result=["not_stopped"] * 20 + ["stopped"] * 30 + ["na"] * 33)
+        with tempfile.TemporaryDirectory() as tmp:
+            judged.to_csv(Path(tmp) / "all.csv", index=False, encoding="utf-8-sig")
+            config = Path(tmp) / "eval.yaml"
+            config.write_text(yaml.safe_dump({"min_n_reference": 30}), encoding="utf-8")
+            at = AppTest.from_function(run_app, args=(tmp, str(config)), default_timeout=30).run()
+            at.sidebar.selectbox[0].select(kind).run()
+        self.assertEqual(len(at.exception), 0)
+        return at
+
+    def test_red_kind_shows_red_rate(self):
+        at = self.run_with_red("적색 미정지")
+        # na는 분모에서 빠진다: 판정 대상 50, 미정지 20
+        self.assertEqual([m.value for m in at.metric], ["50건", "20건", "40.0%"])
+        self.assertEqual(at.metric[1].label, "위반 의심 (미정지)")
+        self.assertEqual(len(at.dataframe), 1)
+
+    def test_all_kinds_side_by_side_not_merged(self):
+        at = self.run_with_red("전체")
+        self.assertEqual([m.value for m in at.metric], ["83건", "33건", "39.8%", "50건", "20건", "40.0%"])
+        self.assertEqual(len(at.dataframe), 2)
+
+    def test_red_kind_without_red_judgment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            make_judged().to_csv(Path(tmp) / "all.csv", index=False, encoding="utf-8-sig")
+            config = Path(tmp) / "eval.yaml"
+            config.write_text(yaml.safe_dump({"min_n_reference": 30}), encoding="utf-8")
+            at = AppTest.from_function(run_app, args=(tmp, str(config)), default_timeout=30).run()
+            at.sidebar.selectbox[0].select("적색 미정지").run()
+        self.assertEqual(len(at.exception), 0)
+        self.assertEqual(len(at.metric), 0)
+        self.assertEqual(at.info[0].value, "적색 미정지 판정 결과가 아직 없다.")
+
     def test_renders_without_data(self):
         with tempfile.TemporaryDirectory() as tmp:
             at = AppTest.from_function(run_app, args=(tmp, "unused.yaml"), default_timeout=30).run()
