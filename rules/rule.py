@@ -4,10 +4,9 @@
 입력: outputs/features/<영상>.csv, configs/site_<영상>.yaml (정지 기준값, stopline_zone_m, right_turn_signal, camera_moved_s)
 제외 사유 값은 docs/csv_schema.md 5절 (occluded·camera_moved / signal_unknown·stopline_hidden·rturn_signal·camera_moved)
 출력: outputs/judged/<영상>.csv (컬럼은 docs/csv_schema.md 5절)
-
-지금은 1단계(보행자)만 판정한다. 2단계 컬럼(red_result, red_exclude_reason)은 MVP 뒤에 추가한다.
 """
 import argparse
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -31,6 +30,31 @@ def judge_ped(peds_lost: int, peds_at_entry: int, camera_moved: bool) -> tuple[s
     return "yield", ""
 
 
+def judge_red(
+    signal_at_stopline: str | float,  # CSV의 빈 칸은 pandas가 nan(float)으로 읽는다
+    stop_sec_before_line: float,
+    stop_min_duration_s: float,
+    right_turn_signal: bool,
+    camera_moved: bool,
+) -> tuple[str, str]:
+    """이벤트 1건의 (red_result, red_exclude_reason). 보행자 판정과 독립이다.
+    정지선 통과 시각의 신호가 적색일 때만 판정하고, 녹색·황색(not_red)은 na다.
+    적색인데 정지 시간을 잴 수 없으면(빈 값) 미정지로 단정하지 않고 제외한다."""
+    if camera_moved:
+        return "exclude", "camera_moved"
+    if right_turn_signal:
+        return "exclude", "rturn_signal"
+    if signal_at_stopline == "not_red":
+        return "na", ""
+    if signal_at_stopline != "red":  # unknown이거나 신호 판정을 돌리지 않아 비어 있음
+        return "exclude", "signal_unknown"
+    if math.isnan(stop_sec_before_line):
+        return "exclude", "stopline_hidden"
+    if stop_sec_before_line >= stop_min_duration_s:
+        return "stopped", ""
+    return "not_stopped", ""
+
+
 def in_camera_moved(t_enter_s: float, intervals: list) -> bool:
     """횡단보도 진입 시각이 카메라가 움직인 구간 안에 있는가."""
     return any(start <= t_enter_s <= end for start, end in intervals)
@@ -50,17 +74,14 @@ def judge(features: str, site: str, out_dir: str = "outputs/judged") -> None:
     df["slot"] = wall.dt.hour.map(lambda h: f"{h:02d}–{h + 1:02d}시")
     df["vehicle_type"] = df["coco_cls"].map(VEHICLE_TYPE)
 
+    moved = [in_camera_moved(t, cfg["camera_moved_s"]) for t in df["t_enter_s"]]
     results = [
-        judge_ped(
-            r.peds_lost,
-            r.peds_at_entry,
-            in_camera_moved(r.t_enter_s, cfg["camera_moved_s"]),
-        )
-        for r in df.itertuples()
+        judge_ped(r.peds_lost, r.peds_at_entry, m)
+        + judge_red(r.signal_at_stopline, r.stop_sec_before_line, cfg["stop_min_duration_s"], cfg["right_turn_signal"], m)
+        for r, m in zip(df.itertuples(), moved)
     ]
-    df[["ped_result", "ped_exclude_reason"]] = pd.DataFrame(
-        results, columns=["ped_result", "ped_exclude_reason"], index=df.index
-    )
+    columns = ["ped_result", "ped_exclude_reason", "red_result", "red_exclude_reason"]
+    df[columns] = pd.DataFrame(results, columns=columns, index=df.index)
     df["status"] = "auto"
     df["clip"] = ""
 
