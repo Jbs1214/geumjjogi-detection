@@ -56,15 +56,16 @@ def signal_agreement(red_labels: str, signal: str) -> float:
     raise NotImplementedError
 
 
-def bootstrap_ci(y_true: list[str], y_pred: list[str], n: int) -> tuple[float, float]:
-    """F1의 부트스트랩 95% 구간. n은 configs/eval.yaml의 bootstrap_n."""
+def bootstrap_ci(y_true: list[str], y_pred: list[str], n: int, f1=no_yield_f1) -> tuple[float, float]:
+    """F1의 부트스트랩 95% 구간. n은 configs/eval.yaml의 bootstrap_n. f1은 no_yield_f1(기본) 또는 not_stopped_f1.
+    재표본에 판정 대상이 없어 F1이 nan인 회차는 빼고 구한다."""
     rng = np.random.default_rng(0)
     true, pred = np.array(y_true), np.array(y_pred)
     scores = []
     for _ in range(n):
         idx = rng.integers(0, len(true), len(true))
-        scores.append(no_yield_f1(true[idx], pred[idx]))
-    low, high = np.percentile(scores, [2.5, 97.5])
+        scores.append(f1(true[idx], pred[idx]))
+    low, high = np.nanpercentile(scores, [2.5, 97.5])
     return float(low), float(high)
 
 

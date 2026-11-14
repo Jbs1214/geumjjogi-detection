@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
-from eval.overlay import render
+from eval.overlay import RESULT_COLORS, render, result_label
 
 EVAL_CFG = {"blur_margin": 0.15, "blur_kernel_frac": 0.5, "blur_plate_frac": 0.4}
 SITE_CFG = {
@@ -39,7 +39,36 @@ def read_frames(path: Path) -> list[np.ndarray]:
     return frames
 
 
+class ResultLabelTest(unittest.TestCase):
+    def test_ped_only_when_no_red_judgment(self):
+        # 적색 판정이 없거나(None·nan) 판정 대상이 아니면(na·exclude) 보행자 글자만
+        for red in (None, float("nan"), "na", "exclude"):
+            self.assertEqual(result_label("yield", red), ("양보", RESULT_COLORS["yield"]))
+
+    def test_red_judgment_is_appended(self):
+        self.assertEqual(result_label("yield", "stopped"), ("양보 · 일시정지", RESULT_COLORS["yield"]))
+        self.assertEqual(result_label("no_yield", "stopped"), ("미양보 · 일시정지", RESULT_COLORS["no_yield"]))
+
+    def test_not_stopped_uses_violation_color(self):
+        self.assertEqual(result_label("yield", "not_stopped"), ("양보 · 미정지", RESULT_COLORS["no_yield"]))
+        self.assertEqual(result_label("exclude", "not_stopped"), ("제외 · 미정지", RESULT_COLORS["no_yield"]))
+
+
 class RenderTest(unittest.TestCase):
+    def test_renders_with_red_result_column(self):
+        tracks = pd.DataFrame({
+            "frame": range(N_FRAMES), "track_id": 7, "cls": "vehicle", "x1": 10, "y1": 60, "x2": 50, "y2": 100,
+        })
+        judged = pd.DataFrame({"track_id": [7], "t_enter_s": [0.6], "ped_result": ["yield"], "red_result": ["not_stopped"]})
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out = Path(tmp) / "src.mp4", Path(tmp) / "out.mp4"
+            write_video(src)
+            with mock.patch("eval.overlay.put_korean") as put_korean:
+                render(str(src), [], tracks, judged, SITE_CFG, EVAL_CFG, str(out))
+            self.assertEqual(len(read_frames(out)), N_FRAMES)
+        self.assertEqual(put_korean.call_args.args[1], "양보 · 미정지")
+        self.assertEqual(put_korean.call_args.args[4], RESULT_COLORS["no_yield"])
+
     def test_output_matches_input_length_and_size(self):
         tracks = pd.DataFrame({
             "frame": range(N_FRAMES),
