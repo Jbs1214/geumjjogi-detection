@@ -59,6 +59,11 @@ class DataTest(unittest.TestCase):
         # B는 위반율 100%지만 3건이라 참고용 → 빠진다
         self.assertEqual(list(zip(top["intersection"], top["slot"])), [("A", "09–10시"), ("A", "08–09시")])
 
+    def test_top_slots_skip_zero_violation(self):
+        # 위반 의심이 0건인 칸은 단속 우선 시간대가 아니다
+        table = pd.DataFrame({"note": ["", ""], "violation_rate": [0.0, 0.2]})
+        self.assertEqual(list(top_slots(table)["violation_rate"]), [0.2])
+
     def test_empty_dir(self):
         with tempfile.TemporaryDirectory() as empty:
             self.assertTrue(load_judged(empty).empty)

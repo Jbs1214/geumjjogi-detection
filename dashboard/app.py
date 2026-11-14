@@ -49,8 +49,8 @@ def apply_filters(df: pd.DataFrame, intersections: list[str], start: date, end: 
 
 
 def top_slots(table: pd.DataFrame, n: int = TOP_N) -> pd.DataFrame:
-    """표본이 충분한(참고용이 아닌) 칸 중 위반율 높은 순 n개."""
-    return table[table["note"] == ""].sort_values("violation_rate", ascending=False).head(n)
+    """표본이 충분하고(참고용이 아니고) 위반 의심이 한 건이라도 있는 칸 중 위반율 높은 순 n개."""
+    return table[(table["note"] == "") & (table["violation_rate"] > 0)].sort_values("violation_rate", ascending=False).head(n)
 
 
 def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> None:
@@ -70,7 +70,7 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> Non
     c1, c2, c3 = st.columns(3)
     c1.metric("판정 대상", f"{n}건")
     c2.metric(f"위반 의심 ({short})", f"{k}건")
-    c3.metric("위반율", f"{k / n:.1%}", f"95% 신뢰구간 {low:.1%} ~ {high:.1%}", delta_color="off")
+    c3.metric("위반율", f"{k / n:.1%}", f"95% 신뢰구간 {low:.1%} ~ {high:.1%}", delta_color="off", delta_arrow="off")
 
     st.subheader("교차로 × 시간대 위반율")
     view = pd.DataFrame({
@@ -105,7 +105,7 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> Non
     st.subheader(f"단속 우선 시간대 TOP {TOP_N}")
     top = top_slots(table)
     if top.empty:
-        st.info(f"판정 대상이 {min_n}건 이상인 시간대가 아직 없다.")
+        st.info(f"판정 대상이 {min_n}건 이상이면서 위반 의심이 있는 시간대가 아직 없다.")
     for rank, r in enumerate(top.itertuples(), 1):
         st.markdown(
             f"**{rank}. 교차로 {r.intersection} · {r.slot}** — 위반율 {r.violation_rate:.1%} "
