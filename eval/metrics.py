@@ -1,5 +1,7 @@
 # 담당: 육주영
 """공통 평가 지표 (기술서 6). F1은 판정 대상만 비교한다(exclude·na 제외)."""
+import math
+
 import numpy as np
 import pandas as pd
 from sklearn.metrics import cohen_kappa_score, f1_score
@@ -38,8 +40,15 @@ def extraction_recall(gt_events: str, pred_events: str, match_window_s: float) -
 
 
 def not_stopped_f1(y_true: list[str], y_pred: list[str]) -> float:
-    """2단계: 미정지 클래스 F1 (stopped / not_stopped)."""
-    raise NotImplementedError
+    """2단계: 미정지 클래스 F1 (stopped / not_stopped).
+    정답이 exclude·na인 이벤트는 뺀다. 예측이 exclude·na면 미정지를 못 잡은 것으로 센다.
+    정답에 판정 대상이 하나도 없으면 nan."""
+    pairs = [(t, p) for t, p in zip(y_true, y_pred) if t in ("stopped", "not_stopped")]
+    if not pairs:
+        return math.nan
+    true = [t == "not_stopped" for t, _ in pairs]
+    pred = [p == "not_stopped" for _, p in pairs]
+    return float(f1_score(true, pred, zero_division=0))
 
 
 def signal_agreement(red_labels: str, signal: str) -> float:

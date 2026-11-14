@@ -4,9 +4,7 @@
 시간대는 영상 파일 이름({교차로}_{YYYYMMDD}_{HHMM})에서 읽는다.
 
 입력: outputs/judged/*.csv, data/labels/*.csv (정답 구간 비교용), configs/eval.yaml
-출력: outputs/report/yield_rate.csv, outputs/report/yield_rate.png, 지표 출력
-
-지금은 1단계(보행자)만 집계한다. 적색 위반율은 MVP 뒤에 추가한다.
+출력: outputs/report/yield_rate.csv, outputs/report/yield_rate.png, outputs/report/red_rate.csv(2단계 판정이 나온 뒤), 지표 출력
 """
 import argparse
 import math
@@ -19,7 +17,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import yaml
 
-from eval.metrics import bootstrap_ci, kappa, match_events, no_yield_f1, yield_rate_error
+from eval.metrics import bootstrap_ci, kappa, match_events, no_yield_f1, not_stopped_f1, yield_rate_error
 
 
 def wilson_ci(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -37,23 +35,31 @@ def violation_rate(results: pd.Series) -> float:
     return (results == "no_yield").sum() / n if n else math.nan
 
 
-def rate_table(judged: pd.DataFrame, min_n_reference: int) -> pd.DataFrame:
+def rate_table(
+    judged: pd.DataFrame, min_n_reference: int, col: str = "ped_result", ok: str = "yield", bad: str = "no_yield"
+) -> pd.DataFrame:
+    """교차로·시간대별 위반율 표. 기본은 보행자, 적색은 col="red_result", ok="stopped", bad="not_stopped"."""
     rows = []
     for (intersection, slot), g in judged.groupby(["intersection", "slot"]):
-        n = int(g["ped_result"].isin(["yield", "no_yield"]).sum())
-        k = int((g["ped_result"] == "no_yield").sum())
+        n = int(g[col].isin([ok, bad]).sum())
+        k = int((g[col] == bad).sum())
         low, high = wilson_ci(k, n)
         rows.append({
             "intersection": intersection,
             "slot": slot,
             "n_target": n,
-            "n_no_yield": k,
+            f"n_{bad}": k,
             "violation_rate": k / n if n else math.nan,
             "ci_low": low,
             "ci_high": high,
             "note": "참고용" if n < min_n_reference else "",
         })
     return pd.DataFrame(rows)
+
+
+def has_red_judgment(judged: pd.DataFrame) -> bool:
+    """2단계 판정이 한 건이라도 나왔는가. 신호 판정을 돌리지 않은 judged는 전부 signal_unknown 제외라 보고할 것이 없다."""
+    return "red_result" in judged.columns and bool(judged["red_result"].isin(["stopped", "not_stopped"]).any())
 
 
 def plot_rates(table: pd.DataFrame, path: Path) -> None:
@@ -89,7 +95,7 @@ def evaluate(judged: pd.DataFrame, labels_dir: str, cfg: dict) -> tuple[pd.DataF
         # 짝이 하나도 없으면 F1을 계산할 수 없다(재현율 0으로만 남긴다)
         f1 = no_yield_f1(y_true, y_pred) if pairs else math.nan
         ci_low, ci_high = bootstrap_ci(y_true, y_pred, cfg["bootstrap_n"]) if pairs else (math.nan, math.nan)
-        rows.append({
+        row = {
             "video": video,
             "labeler": gt["labeler"].iloc[0],
             "n_label": len(gt),
@@ -102,7 +108,13 @@ def evaluate(judged: pd.DataFrame, labels_dir: str, cfg: dict) -> tuple[pd.DataF
                 violation_rate(gt["ped_label"]),
                 violation_rate(judged.loc[judged["video"] == video, "ped_result"]),
             ),
-        })
+        }
+        if has_red_judgment(judged):
+            row["not_stopped_f1"] = not_stopped_f1(
+                [gt.loc[i, "red_label"] for i, _ in pairs],
+                [judged.loc[j, "red_result"] for _, j in pairs],
+            )
+        rows.append(row)
 
     kappa_rows = []
     by_video: dict[str, list[pd.DataFrame]] = {}
@@ -137,6 +149,10 @@ def report(judged_dir: str, labels_dir: str, config: str, out_dir: str = "output
     table.to_csv(out / "yield_rate.csv", index=False, encoding="utf-8-sig")
     plot_rates(table, out / "yield_rate.png")
     print(table.to_string(index=False))
+    if has_red_judgment(judged):
+        red_table = rate_table(judged, cfg["min_n_reference"], "red_result", "stopped", "not_stopped")
+        red_table.to_csv(out / "red_rate.csv", index=False, encoding="utf-8-sig")
+        print(red_table.to_string(index=False))
 
     metrics, kappas = evaluate(judged, labels_dir, cfg)
     if not metrics.empty:

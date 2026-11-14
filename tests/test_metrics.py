@@ -1,12 +1,13 @@
 # 담당: 육주영
 """eval/metrics.py 테스트. 실행: python -m unittest discover -s tests -t . -v"""
+import math
 import tempfile
 import unittest
 from pathlib import Path
 
 import pandas as pd
 
-from eval.metrics import bootstrap_ci, extraction_recall, kappa, match_events, no_yield_f1, yield_rate_error
+from eval.metrics import bootstrap_ci, extraction_recall, kappa, match_events, no_yield_f1, not_stopped_f1, yield_rate_error
 
 
 def events(rows):
@@ -26,6 +27,26 @@ class F1Test(unittest.TestCase):
     def test_predicted_exclude_counts_as_miss(self):
         # TP 1, FN 1 → 정밀도 1, 재현율 0.5, F1 2/3
         self.assertAlmostEqual(no_yield_f1(["no_yield", "no_yield"], ["no_yield", "exclude"]), 2 / 3)
+
+
+class RedF1Test(unittest.TestCase):
+    def test_hand_computed(self):
+        # 미정지 기준: TP 1, FN 1, FP 1 → F1 0.5
+        y_true = ["not_stopped", "not_stopped", "stopped", "stopped"]
+        y_pred = ["not_stopped", "stopped", "not_stopped", "stopped"]
+        self.assertAlmostEqual(not_stopped_f1(y_true, y_pred), 0.5)
+
+    def test_true_na_and_exclude_are_dropped(self):
+        y_true = ["not_stopped", "na", "exclude"]
+        y_pred = ["not_stopped", "not_stopped", "not_stopped"]
+        self.assertAlmostEqual(not_stopped_f1(y_true, y_pred), 1.0)
+
+    def test_predicted_na_or_exclude_counts_as_miss(self):
+        # TP 1, FN 2 → 정밀도 1, 재현율 1/3, F1 0.5
+        self.assertAlmostEqual(not_stopped_f1(["not_stopped"] * 3, ["not_stopped", "na", "exclude"]), 0.5)
+
+    def test_no_target_is_nan(self):
+        self.assertTrue(math.isnan(not_stopped_f1(["na", "exclude"], ["not_stopped", "stopped"])))
 
 
 class MatchTest(unittest.TestCase):

@@ -53,6 +53,17 @@ class RateTableTest(unittest.TestCase):
         self.assertEqual(table.loc["09–10시", "n_target"], 2)
         self.assertEqual(table.loc["09–10시", "note"], "참고용")
 
+    def test_red_rate_counts_stopped_and_not_stopped_only(self):
+        judged = make_judged().assign(
+            red_result=["not_stopped"] * 10 + ["stopped"] * 20 + ["na"] * 10 + ["not_stopped", "exclude", "na"]
+        )
+        table = rate_table(judged, 30, "red_result", "stopped", "not_stopped").set_index("slot")
+        # na·제외는 분모에서 빠진다
+        self.assertEqual(table.loc["08–09시", "n_target"], 30)
+        self.assertEqual(table.loc["08–09시", "n_not_stopped"], 10)
+        self.assertAlmostEqual(table.loc["08–09시", "violation_rate"], 1 / 3)
+        self.assertEqual(table.loc["09–10시", "n_target"], 1)
+
 
 class ReportFileTest(unittest.TestCase):
     def test_report_and_evaluate(self):
@@ -85,6 +96,28 @@ class ReportFileTest(unittest.TestCase):
         self.assertAlmostEqual(m.loc["a", "rate_error_pp"], abs(0.5 - 11 / 42) * 100)
         self.assertEqual(kappas.loc[0, "n_both"], 4)
         self.assertAlmostEqual(kappas.loc[0, "kappa"], 0.5)
+
+    def test_red_rate_file_and_not_stopped_f1(self):
+        judged = make_judged().assign(red_result=["not_stopped", "stopped", "na", "not_stopped"] + ["na"] * 39)
+        gt = judged.head(4)[["video", "event_id", "cls", "t_enter_s"]].assign(
+            ped_label="yield", red_label=["not_stopped", "not_stopped", "na", "stopped"], labeler="a"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "judged").mkdir()
+            (tmp / "labels").mkdir()
+            judged.to_csv(tmp / "judged" / "A_20261031_0800.csv", index=False, encoding="utf-8-sig")
+            gt.to_csv(tmp / "labels" / "A_20261031_0800_a.csv", index=False, encoding="utf-8-sig")
+            (tmp / "eval.yaml").write_text(yaml.safe_dump(CFG), encoding="utf-8")
+
+            report(str(tmp / "judged"), str(tmp / "labels"), str(tmp / "eval.yaml"), str(tmp / "report"))
+            red = pd.read_csv(tmp / "report" / "red_rate.csv", encoding="utf-8-sig").set_index("slot")
+            metrics, _ = evaluate(judged, str(tmp / "labels"), CFG)
+
+        self.assertEqual(red.loc["08–09시", "n_target"], 3)
+        self.assertEqual(red.loc["08–09시", "n_not_stopped"], 2)
+        # 정답 판정 대상 3건(na 1건 제외): TP 1, FN 1, FP 1 → F1 0.5
+        self.assertAlmostEqual(metrics.loc[0, "not_stopped_f1"], 0.5)
 
     def test_labels_without_judged_or_match(self):
         judged = make_judged()
