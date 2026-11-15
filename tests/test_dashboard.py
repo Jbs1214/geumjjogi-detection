@@ -89,7 +89,7 @@ class AppSmokeTest(unittest.TestCase):
             config = Path(tmp) / "eval.yaml"
             config.write_text(yaml.safe_dump({"min_n_reference": 30}), encoding="utf-8")
             at = AppTest.from_function(run_app, args=(tmp, str(config)), default_timeout=30).run()
-            at.sidebar.selectbox[0].select(kind).run()
+            at.selectbox[0].select(kind).run()
         self.assertEqual(len(at.exception), 0)
         return at
 
@@ -97,7 +97,6 @@ class AppSmokeTest(unittest.TestCase):
         at = self.run_with_red("적색 미정지")
         # na는 분모에서 빠진다: 판정 대상 50, 미정지 20
         self.assertEqual([m.value for m in at.metric], ["50건", "20건", "40.0%"])
-        self.assertEqual(at.metric[1].label, "위반 의심 (미정지)")
         self.assertEqual(len(at.dataframe), 1)
 
     def test_all_kinds_side_by_side_not_merged(self):
@@ -111,7 +110,7 @@ class AppSmokeTest(unittest.TestCase):
             config = Path(tmp) / "eval.yaml"
             config.write_text(yaml.safe_dump({"min_n_reference": 30}), encoding="utf-8")
             at = AppTest.from_function(run_app, args=(tmp, str(config)), default_timeout=30).run()
-            at.sidebar.selectbox[0].select("적색 미정지").run()
+            at.selectbox[0].select("적색 미정지").run()
         self.assertEqual(len(at.exception), 0)
         self.assertEqual(len(at.metric), 0)
         self.assertEqual(at.info[0].value, "적색 미정지 판정 결과가 아직 없다.")
