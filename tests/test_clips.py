@@ -20,7 +20,7 @@ N_FRAMES, FPS, SIZE = 50, 10.0, (160, 120)
 
 
 def fake_detect(video, detect_cfg, blur_conf, start, end):
-    return [[("car", 10, 30, 50, 70)] for _ in range(end - start)]
+    return [[("vehicle", 10, 30, 50, 70)] for _ in range(end - start)]
 
 
 def count_frames(path: Path) -> int:

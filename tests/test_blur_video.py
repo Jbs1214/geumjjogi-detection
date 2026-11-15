@@ -19,7 +19,7 @@ N_FRAMES, FPS, SIZE = 20, 10.0, (160, 120)
 
 
 def fake_detect(video, detect_cfg, blur_conf):
-    return [[("person", 20, 20, 80, 80)] for _ in range(N_FRAMES)]
+    return [[("pedestrian", 20, 20, 80, 80)] for _ in range(N_FRAMES)]
 
 
 def read_frames(path: Path) -> list[np.ndarray]:

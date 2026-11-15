@@ -80,7 +80,7 @@ class RenderTest(unittest.TestCase):
             "y2": 70,
         })
         judged = pd.DataFrame({"track_id": [7], "t_enter_s": [0.6], "ped_result": ["no_yield"]})
-        blur_boxes = [[("car", 10 + 5 * f, 30, 50 + 5 * f, 70)] for f in range(N_FRAMES)]
+        blur_boxes = [[("vehicle", 10 + 5 * f, 30, 50 + 5 * f, 70)] for f in range(N_FRAMES)]
         with tempfile.TemporaryDirectory() as tmp:
             src, out = Path(tmp) / "src.mp4", Path(tmp) / "out.mp4"
             write_video(src)
