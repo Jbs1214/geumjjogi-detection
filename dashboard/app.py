@@ -29,6 +29,12 @@ ALL_KINDS = "전체"
 BAR_COLOR = "#e05252"  # 위반율 막대
 BADGE_ENOUGH = "background-color: #d7f0df; color: #1a7f43"  # 신뢰도 배지
 BADGE_REFERENCE = "background-color: #fdecc8; color: #a05a00"
+# 기획서 3-4절 예시 화면의 색. Streamlit이 key를 st-key-<이름> 클래스로 내보내는 것에 기댄다(버전을 올려 이름이 바뀌면 색만 빠진다)
+STYLE = """<style>
+h1 { color: #1f3a68 !important; }
+[class*="st-key-bad-"] [data-testid="stMetricValue"] { color: #c62828; }
+[class*="st-key-top-"] { background: #fdf1f0; border: 0; border-left: 5px solid #d32f2f; border-radius: 6px; }
+</style>"""
 SORTS = {  # 표시 이름: (정렬 컬럼, 오름차순)
     "위반율 높은 순": ("violation_rate", False),
     "시간대 순": ("slot", True),
@@ -69,33 +75,39 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> Non
     n, k = int(table["n_target"].sum()), int(table[f"n_{bad}"].sum())
     low, high = wilson_ci(k, n)
     c1, c2, c3 = st.columns(3)
-    c1.metric("판정 대상 우회전", f"{n}건", border=True)
-    c2.metric("위반 의심", f"{k}건", border=True)
-    c3.metric("위반율 (신뢰구간)", f"{k / n:.1%}", f"{low:.1%}~{high:.1%}", delta_color="off", delta_arrow="off", border=True)
+    c1.metric("판정 대상 우회전", f"{n}건", border=True, height="stretch")  # 세 카드 높이를 맞춘다
+    c2.container(key=f"bad-n-{col}", height="stretch").metric("위반 의심", f"{k}건", border=True, height="stretch")
+    c3.container(key=f"bad-rate-{col}").metric(
+        "위반율 (신뢰구간)", f"{k / n:.0%}", f"{low * 100:.0f}~{high * 100:.0f}%", delta_color="off", delta_arrow="off", border=True
+    )
 
     view = pd.DataFrame({
         "교차로": "교차로 " + table["intersection"].astype(str),
         "시간대": table["slot"],
         "판정 대상": table["n_target"],
         "위반 의심": table[f"n_{bad}"],
-        "위반율": table["violation_rate"],
+        "위반율": table["violation_rate"] * 100,  # 막대에 정수 %로 찍으려고 0~100 단위
         "신뢰구간": [
-            f"{lo:.1%}~{hi:.1%}" if pd.notna(lo) else "-" for lo, hi in zip(table["ci_low"], table["ci_high"])
+            f"{lo * 100:.0f}~{hi * 100:.0f}%" if pd.notna(lo) else "-" for lo, hi in zip(table["ci_low"], table["ci_high"])
         ],
         "신뢰도": table["note"].replace("", "표본 충분"),
     })
     st.dataframe(
         view.style.map(lambda v: BADGE_ENOUGH if v == "표본 충분" else BADGE_REFERENCE, subset=["신뢰도"]),
         column_config={
-            "위반율": st.column_config.ProgressColumn("위반율", min_value=0, max_value=1, format="percent", color=BAR_COLOR)
+            "위반율": st.column_config.ProgressColumn("위반율", min_value=0, max_value=100, format="%.0f%%", color=BAR_COLOR)
         },
         hide_index=True,
         width="stretch",
     )
     st.caption(f"신뢰도 '참고용' = 판정 대상 {min_n}건 미만. 단속 우선 검토 시간대 계산에서 뺀다.")
+    precise = view.assign(  # 화면은 정수 %지만 내려받는 표는 정밀도를 유지한다
+        위반율=table["violation_rate"],
+        신뢰구간=[f"{lo:.1%} ~ {hi:.1%}" if pd.notna(lo) else "-" for lo, hi in zip(table["ci_low"], table["ci_high"])],
+    )
     st.download_button(
         "현재 표를 CSV로 내려받기",
-        view.to_csv(index=False).encode("utf-8-sig"),
+        precise.to_csv(index=False).encode("utf-8-sig"),
         file_name,
         "text/csv",
         key=col,  # "전체"에서는 버튼이 둘이라 구분한다
@@ -113,9 +125,9 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> Non
             & (filtered[col] == bad)
             & (filtered["clip"] != "")
         ]["clip"]
-        with area.container(border=True):
+        with area.container(border=True, key=f"top-{col}-{rank}"):
             st.markdown(f"**:red[{rank}. 교차로 {r.intersection} {r.slot}]**")
-            st.markdown(f"위반율 {r.violation_rate:.1%} · 위반 의심 {getattr(r, f'n_{bad}')}건")
+            st.markdown(f"위반율 {r.violation_rate:.0%} · 위반 의심 {getattr(r, f'n_{bad}')}건")
             with st.expander(f"클립 보기 ▶ ({len(clips)}개)"):
                 for clip in clips:
                     if Path(clip).exists():
@@ -126,6 +138,7 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> Non
 
 def main(judged_dir: str = "outputs/judged", config: str = "configs/eval.yaml") -> None:
     st.set_page_config(page_title="우회전 위반 의심 통계", layout="wide")
+    st.markdown(STYLE, unsafe_allow_html=True)
     st.title("우회전 위반율: 교차로·시간대별")
     st.warning(NOTICE)
 

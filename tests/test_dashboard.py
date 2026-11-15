@@ -78,7 +78,7 @@ class AppSmokeTest(unittest.TestCase):
             at = AppTest.from_function(run_app, args=(tmp, str(config)), default_timeout=30).run()
         self.assertEqual(len(at.exception), 0)
         self.assertEqual(at.warning[0].value, NOTICE)
-        self.assertEqual([m.value for m in at.metric], ["83건", "33건", "39.8%"])
+        self.assertEqual([m.value for m in at.metric], ["83건", "33건", "40%"])
         self.assertEqual(len(at.dataframe), 1)
 
     def run_with_red(self, kind):
@@ -96,12 +96,12 @@ class AppSmokeTest(unittest.TestCase):
     def test_red_kind_shows_red_rate(self):
         at = self.run_with_red("적색 미정지")
         # na는 분모에서 빠진다: 판정 대상 50, 미정지 20
-        self.assertEqual([m.value for m in at.metric], ["50건", "20건", "40.0%"])
+        self.assertEqual([m.value for m in at.metric], ["50건", "20건", "40%"])
         self.assertEqual(len(at.dataframe), 1)
 
     def test_all_kinds_side_by_side_not_merged(self):
         at = self.run_with_red("전체")
-        self.assertEqual([m.value for m in at.metric], ["83건", "33건", "39.8%", "50건", "20건", "40.0%"])
+        self.assertEqual([m.value for m in at.metric], ["83건", "33건", "40%", "50건", "20건", "40%"])
         self.assertEqual(len(at.dataframe), 2)
 
     def test_red_kind_without_red_judgment(self):
