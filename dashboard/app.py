@@ -3,7 +3,7 @@
 실행: streamlit run dashboard/app.py
 
 화면(기술서 3.2, 배치는 기획서 3-4절 예시 화면): 화면 위 필터(교차로·기간·위반 유형·정렬), 요약 카드, 교차로 x 시간대 위반율 표(Wilson 95% 신뢰구간, configs/eval.yaml의 min_n_reference 미만 "참고용"),
-단속 우선 시간대 TOP 3와 클립 보기, 현재 필터의 표를 CSV로 내려받기.
+단속 우선 검토 시간대 TOP 3(표본 충분, 위반 의심 1건 이상)와 클립 보기, 현재 필터의 표를 CSV로 내려받기.
 "위반 의심 통계이며 실제 단속은 별도 확인이 필요하다" 문구를 항상 표시한다.
 위반 유형 "전체"는 두 유형을 나란히 보여 주고 위반율을 하나로 합치지 않는다(분모가 다르다).
 """
@@ -62,6 +62,31 @@ def top_slots(table: pd.DataFrame, n: int = TOP_N) -> pd.DataFrame:
     return table[(table["note"] == "") & (table["violation_rate"] > 0)].sort_values("violation_rate", ascending=False).head(n)
 
 
+def pct(x: float) -> str:
+    """정수 %. 0보다 크지만 반올림하면 0%가 되는 값은 "1% 미만"으로 적는다(위반 의심이 있는데 0%로 보이지 않게)."""
+    return "1% 미만" if 0 < x < 0.005 else f"{x:.0%}"
+
+
+def rate_views(table: pd.DataFrame, bad: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """위반율 표(rate_table)를 화면용과 내려받기용으로 만든다.
+    화면용은 기획서 예시 화면대로 정수 %(위반율 0~100, 막대 칸), 내려받기용은 정밀도를 유지한다(위반율 0~1, 신뢰구간 소수 한 자리)."""
+    ci = list(zip(table["ci_low"], table["ci_high"]))
+    view = pd.DataFrame({
+        "교차로": "교차로 " + table["intersection"].astype(str),
+        "시간대": table["slot"],
+        "판정 대상": table["n_target"],
+        "위반 의심": table[f"n_{bad}"],
+        "위반율": table["violation_rate"] * 100,
+        "신뢰구간": [f"{lo * 100:.0f}~{hi * 100:.0f}%" if pd.notna(lo) else "-" for lo, hi in ci],
+        "신뢰도": table["note"].replace("", "표본 충분"),
+    })
+    export = view.rename(columns={"신뢰구간": "95% 신뢰구간"}).assign(**{
+        "위반율": table["violation_rate"],
+        "95% 신뢰구간": [f"{lo:.1%} ~ {hi:.1%}" if pd.notna(lo) else "-" for lo, hi in ci],
+    })
+    return view, export
+
+
 def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> None:
     """위반 유형 하나의 요약 카드, 위반율 표, 내려받기, 단속 우선 검토 시간대. 배치는 기획서 3-4절 예시 화면을 따른다."""
     col, ok, bad, file_name = KINDS[name]
@@ -78,20 +103,10 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> Non
     c1.metric("판정 대상 우회전", f"{n}건", border=True, height="stretch")  # 세 카드 높이를 맞춘다
     c2.container(key=f"bad-n-{col}", height="stretch").metric("위반 의심", f"{k}건", border=True, height="stretch")
     c3.container(key=f"bad-rate-{col}").metric(
-        "위반율 (신뢰구간)", f"{k / n:.0%}", f"{low * 100:.0f}~{high * 100:.0f}%", delta_color="off", delta_arrow="off", border=True
+        "위반율 (신뢰구간)", pct(k / n), f"{low * 100:.0f}~{high * 100:.0f}%", delta_color="off", delta_arrow="off", border=True
     )
 
-    view = pd.DataFrame({
-        "교차로": "교차로 " + table["intersection"].astype(str),
-        "시간대": table["slot"],
-        "판정 대상": table["n_target"],
-        "위반 의심": table[f"n_{bad}"],
-        "위반율": table["violation_rate"] * 100,  # 막대에 정수 %로 찍으려고 0~100 단위
-        "신뢰구간": [
-            f"{lo * 100:.0f}~{hi * 100:.0f}%" if pd.notna(lo) else "-" for lo, hi in zip(table["ci_low"], table["ci_high"])
-        ],
-        "신뢰도": table["note"].replace("", "표본 충분"),
-    })
+    view, export = rate_views(table, bad)
     st.dataframe(
         view.style.map(lambda v: BADGE_ENOUGH if v == "표본 충분" else BADGE_REFERENCE, subset=["신뢰도"]),
         column_config={
@@ -100,14 +115,10 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> Non
         hide_index=True,
         width="stretch",
     )
-    st.caption(f"신뢰도 '참고용' = 판정 대상 {min_n}건 미만. 단속 우선 검토 시간대 계산에서 뺀다.")
-    precise = view.assign(  # 화면은 정수 %지만 내려받는 표는 정밀도를 유지한다
-        위반율=table["violation_rate"],
-        신뢰구간=[f"{lo:.1%} ~ {hi:.1%}" if pd.notna(lo) else "-" for lo, hi in zip(table["ci_low"], table["ci_high"])],
-    )
+    st.caption(f"신뢰구간은 Wilson 95%. 신뢰도 '참고용' = 판정 대상 {min_n}건 미만. 단속 우선 검토 시간대 계산에서 뺀다.")
     st.download_button(
         "현재 표를 CSV로 내려받기",
-        precise.to_csv(index=False).encode("utf-8-sig"),
+        export.to_csv(index=False).encode("utf-8-sig"),
         file_name,
         "text/csv",
         key=col,  # "전체"에서는 버튼이 둘이라 구분한다
@@ -127,7 +138,7 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> Non
         ]["clip"]
         with area.container(border=True, key=f"top-{col}-{rank}"):
             st.markdown(f"**:red[{rank}. 교차로 {r.intersection} {r.slot}]**")
-            st.markdown(f"위반율 {r.violation_rate:.0%} · 위반 의심 {getattr(r, f'n_{bad}')}건")
+            st.markdown(f"위반율 {pct(r.violation_rate)} · 위반 의심 {getattr(r, f'n_{bad}')}건")
             with st.expander(f"클립 보기 ▶ ({len(clips)}개)"):
                 for clip in clips:
                     if Path(clip).exists():
