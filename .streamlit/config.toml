@@ -1,0 +1,3 @@
+# Dashboard theme: light, as in the example screen of the plan document (docs/plan.md 3-4).
+[theme]
+base = "light"

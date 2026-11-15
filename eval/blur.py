@@ -6,21 +6,30 @@
 검출 결과와 블러 전 프레임은 메모리에서만 다루고 파일로 남기지 않는다. 수치는 configs/eval.yaml의 blur_*.
 """
 import math
+from functools import lru_cache
 
 import cv2
 import numpy as np
 from ultralytics import YOLO
 
-Box = tuple[str, float, float, float, float]  # (COCO 클래스, x1, y1, x2, y2) 픽셀
+Box = tuple[str, float, float, float, float]  # (프로젝트 클래스 vehicle·motorcycle·pedestrian, x1, y1, x2, y2) 픽셀
+
+
+@lru_cache
+def load_model(path: str) -> YOLO:
+    """검출 모델. 클립마다 다시 불러오지 않게 한 번만 만든다."""
+    return YOLO(path)
 
 
 def detect_boxes(
     video: str, detect_cfg: dict, blur_conf: float, start: int = 0, end: int | None = None
 ) -> list[list[Box]]:
     """start~end(끝 제외) 프레임을 검출해 프레임별 박스 목록을 돌려준다. end가 없으면 영상 끝까지.
-    추적을 쓰지 않아 운전자도 포함된다."""
-    model = YOLO(detect_cfg["model"])
-    class_ids = [i for i, name in model.names.items() if name in detect_cfg["class_map"]]
+    추적을 쓰지 않아 운전자도 포함된다. 클래스는 class_map을 거친 프로젝트 클래스로 돌려준다
+    (모델의 클래스 이름이 person이든 pedestrian이든 사람은 pedestrian이 되어 박스 전체가 블러된다)."""
+    model = load_model(detect_cfg["model"])
+    class_map = detect_cfg["class_map"]
+    class_ids = [i for i, name in model.names.items() if name in class_map]
     cap = cv2.VideoCapture(video)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     end = total if end is None else min(end, total)
@@ -32,7 +41,7 @@ def detect_boxes(
             break
         r = model.predict(frame, conf=blur_conf, imgsz=detect_cfg["imgsz"], classes=class_ids, verbose=False)[0]
         frames.append([
-            (model.names[int(c)], *xyxy) for c, xyxy in zip(r.boxes.cls.tolist(), r.boxes.xyxy.tolist())
+            (class_map[model.names[int(c)]], *xyxy) for c, xyxy in zip(r.boxes.cls.tolist(), r.boxes.xyxy.tolist())
         ])
         print_progress("검출", len(frames), end - start)
     cap.release()
@@ -56,7 +65,7 @@ def fill_gaps(boxes_per_frame: list[list[Box]], max_gap_frames: int) -> list[lis
         for box in boxes:
             best = None
             for i, (_, last) in enumerate(open_ends):
-                if (box[0] == "person") != (last[0] == "person"):
+                if (box[0] == "pedestrian") != (last[0] == "pedestrian"):
                     continue
                 dist = math.dist(_center(box), _center(last))
                 if dist <= max(_long_side(box), _long_side(last)) and (best is None or dist < best[0]):
@@ -77,7 +86,7 @@ def blur_frame(frame: np.ndarray, boxes: list[Box], cfg: dict) -> None:
     for cls, x1, y1, x2, y2 in boxes:
         mx, my = (x2 - x1) * cfg["blur_margin"], (y2 - y1) * cfg["blur_margin"]
         x1, y1, x2, y2 = x1 - mx, y1 - my, x2 + mx, y2 + my
-        if cls != "person":
+        if cls != "pedestrian":
             y1 = y2 - (y2 - y1) * cfg["blur_plate_frac"]
         x1, y1 = max(int(x1), 0), max(int(y1), 0)
         x2, y2 = min(math.ceil(x2), w), min(math.ceil(y2), h)

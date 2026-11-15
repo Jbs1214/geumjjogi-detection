@@ -89,6 +89,16 @@ class OtherMetricsTest(unittest.TestCase):
         low, high = bootstrap_ci(y_true, y_pred, 200)
         self.assertTrue(0.0 <= low <= no_yield_f1(y_true, y_pred) <= high <= 1.0)
 
+    def test_bootstrap_ci_for_not_stopped(self):
+        # 판정 대상이 2건뿐이라 재표본의 일부는 na만 뽑혀 F1이 nan이 된다 → 그 회차는 빼고 구간을 낸다
+        y_true = ["not_stopped", "stopped"] + ["na"] * 4
+        y_pred = ["not_stopped", "stopped"] + ["na"] * 4
+        self.assertEqual(bootstrap_ci(y_true, y_pred, 200, not_stopped_f1), (0.0, 1.0))
+        y_true = ["not_stopped", "stopped"] * 10
+        y_pred = ["not_stopped", "stopped", "stopped", "stopped"] * 5
+        low, high = bootstrap_ci(y_true, y_pred, 200, not_stopped_f1)
+        self.assertTrue(0.0 <= low <= not_stopped_f1(y_true, y_pred) <= high <= 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

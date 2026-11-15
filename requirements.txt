@@ -1,5 +1,6 @@
 # torch is installed by environment.yml (GPU-specific build). Keep this file ASCII-only.
 ultralytics==8.4.190
+lap==0.5.14
 opencv-python==5.0.0.93
 numpy==2.4.6
 pandas==3.1.0

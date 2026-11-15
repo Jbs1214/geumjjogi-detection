@@ -110,9 +110,14 @@ def evaluate(judged: pd.DataFrame, labels_dir: str, cfg: dict) -> tuple[pd.DataF
             ),
         }
         if has_red_judgment(judged):
-            row["not_stopped_f1"] = not_stopped_f1(
-                [gt.loc[i, "red_label"] for i, _ in pairs],
-                [judged.loc[j, "red_result"] for _, j in pairs],
+            r_true = [gt.loc[i, "red_label"] for i, _ in pairs]
+            r_pred = [judged.loc[j, "red_result"] for _, j in pairs]
+            row["not_stopped_f1"] = not_stopped_f1(r_true, r_pred)
+            # 짝지어진 라벨에 적색 판정 대상이 없으면 F1이 nan이라 구간도 낼 수 없다
+            row["red_f1_ci_low"], row["red_f1_ci_high"] = (
+                (math.nan, math.nan)
+                if math.isnan(row["not_stopped_f1"])
+                else bootstrap_ci(r_true, r_pred, cfg["bootstrap_n"], not_stopped_f1)
             )
         rows.append(row)
 
@@ -138,10 +143,10 @@ def evaluate(judged: pd.DataFrame, labels_dir: str, cfg: dict) -> tuple[pd.DataF
 def report(judged_dir: str, labels_dir: str, config: str, out_dir: str = "outputs/report") -> None:
     with open(config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
-    judged = pd.concat(
-        [pd.read_csv(p, encoding="utf-8-sig") for p in sorted(Path(judged_dir).glob("*.csv"))],
-        ignore_index=True,
-    )
+    files = sorted(Path(judged_dir).glob("*.csv"))
+    if not files:
+        raise SystemExit(f"판정 결과가 없다: {judged_dir} (rules.rule을 먼저 실행한다)")
+    judged = pd.concat([pd.read_csv(p, encoding="utf-8-sig") for p in files], ignore_index=True)
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -159,6 +164,8 @@ def report(judged_dir: str, labels_dir: str, config: str, out_dir: str = "output
         print(metrics.to_string(index=False))
     if not kappas.empty:
         print(kappas.to_string(index=False))
+        # 기술서 11.1: kappa는 협의 전 두 사람의 라벨로 계산한다
+        print("주의: 위 kappa는 지금 라벨 파일로 계산한 값이다. 협의 뒤 라벨이면 1.0에 가깝게 나오므로 보고에 쓰지 않는다.")
 
 
 def main() -> None:

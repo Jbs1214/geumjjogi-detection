@@ -118,6 +118,7 @@ class ReportFileTest(unittest.TestCase):
         self.assertEqual(red.loc["08–09시", "n_not_stopped"], 2)
         # 정답 판정 대상 3건(na 1건 제외): TP 1, FN 1, FP 1 → F1 0.5
         self.assertAlmostEqual(metrics.loc[0, "not_stopped_f1"], 0.5)
+        self.assertTrue(0.0 <= metrics.loc[0, "red_f1_ci_low"] <= 0.5 <= metrics.loc[0, "red_f1_ci_high"] <= 1.0)
 
     def test_labels_without_judged_or_match(self):
         judged = make_judged()
