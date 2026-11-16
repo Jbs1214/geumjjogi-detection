@@ -73,8 +73,9 @@ def classify_signal(video: str, site: str, out_dir: str = "outputs/signal") -> P
     out = Path(out_dir) / f"{Path(video).stem}.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     seg.round({"t_start_s": 3, "t_end_s": 3}).to_csv(out, index=False, encoding="utf-8-sig")
-    dur = (seg["t_end_s"] - seg["t_start_s"]).groupby(seg["state"]).sum()
-    print(f"신호 구간 {len(seg)}개, 상태별 시간(초) {dur.round(1).to_dict()}")
+    length = seg["t_end_s"] - seg["t_start_s"]
+    dur = length.groupby(seg["state"]).sum()
+    print(f"신호 구간 {len(seg)}개(3초 미만 {int((length < 3).sum())}개), 상태별 시간(초) {dur.round(1).to_dict()}")
     print(f"저장: {out}")
     return out
 
