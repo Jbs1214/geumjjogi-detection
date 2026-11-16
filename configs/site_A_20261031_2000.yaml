@@ -26,7 +26,7 @@ other_crosswalks_px:
   - [1612, 537]
   - [1883, 580]
   - [1867, 638]
-camera_moved_s: []
+camera_moved_s: [[1134.1, 1136.0]]
 approach_roi_px:
 - [1799, 474]
 - [1860, 491]
@@ -45,5 +45,5 @@ stop_speed_mps: 0.5
 stop_min_duration_s: 1.0
 stopline_zone_m: 3.0
 occluded_edge_m: 1.0
-signal_min_frames: 5
+signal_min_frames: 15
 signal_red_ratio_min: 0.05
