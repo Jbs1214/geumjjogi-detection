@@ -11,7 +11,7 @@
 | --- | --- | --- |
 | `video` | 영상 파일 이름(확장자 제외) | `A_20261031_0800` |
 | `event_id` | 영상 안 이벤트 번호. 정답 구간은 라벨러가 매기고, 나머지 영상은 judged의 `event_id`를 그대로 쓴다 | `12` |
-| `cls` | `vehicle` / `motorcycle` | `vehicle` |
+| `cls` | `vehicle` / `motorcycle` (차·버스·트럭은 모두 `vehicle`) | `vehicle` |
 | `t_enter_s` | 차량이 횡단보도 영역에 진입한 시각(초) | `760.8` |
 | `ped_label` | 1단계 보행자: `yield` / `no_yield` / `exclude`. 우회전 경로가 지나는 횡단보도를 모두 보고 판단 | `no_yield` |
 | `red_label` | 2단계 정지선: `stopped` / `not_stopped` / `exclude` / `na`(적색 아님) | `na` |
@@ -35,8 +35,18 @@
 - 도구: 로컬 **labelImg**, 저장 형식 **YOLO**. 클라우드 라벨링 도구에 원본 프레임을 올리지 않는다.
 - 대상: 기술서 4.1 오류 분석에서 검출 누락으로 분류된 장면과 사전학습 모델이 놓친 장면의 프레임(초기값 약 400프레임). 멀리 있는 사람·오토바이 중심. 학습·검증은 영상 단위로 나눈다.
 - 프레임은 정답 구간 영상 2개를 뺀 나머지 영상에서만 모은다(정답 구간은 전후 비교에만 쓴다).
-- 범위: 프레임 안에 보이는 vehicle·motorcycle·pedestrian을 **모두** 단다(ROI 밖 포함). 박스 높이 12픽셀 미만이거나 절반 넘게 가려진 대상은 달지 않는다(초기값).
-- 클래스 ID: `0 vehicle`, `1 motorcycle`, `2 pedestrian` (`configs/detect.yaml`)
+- 범위: 프레임 안에 보이는 car·motorcycle·pedestrian·bus·truck을 **모두** 단다(ROI 밖 포함). 박스 높이 12픽셀 미만이거나 절반 넘게 가려진 대상은 달지 않는다(초기값).
+- 클래스 (`configs/detect.yaml`의 `train_ids`, 11.17 변경):
+
+  | 번호 | 이름 | 화면 이름 | 단축키 | 자동 라벨 (COCO) |
+  | --- | --- | --- | --- | --- |
+  | 0 | car | 차 | 1 | car |
+  | 1 | motorcycle | 오토바이 | 2 | motorcycle |
+  | 2 | pedestrian | 보행자 | 3 | person |
+  | 3 | bus | 버스 | 4 | bus |
+  | 4 | truck | 트럭 | 5 | truck |
+
+- 차종 경계: 버스는 크기와 상관없이 bus(마을버스·미니버스 포함), 트럭도 크기와 상관없이 truck(대형 트럭, 포터·봉고 같은 소형 트럭 포함), 승합차(스타렉스·카니발 등)는 car.
 - 위치: `data/boxes/images/`, `data/boxes/labels/`
 - 오토바이 운전자는 따로 박스를 치지 않는다(오토바이 박스에 포함). 자전거·전동킥보드 탑승자는 라벨하지 않는다(향후 과제).
 - 모델 비교(YOLO11n vs YOLO26s)는 따로 라벨을 만들지 않고 위 검증 프레임(약 80장, 초기값)으로 한다.
