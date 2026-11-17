@@ -25,6 +25,7 @@ from tracking.homography import compute_homography
 
 EXAMPLE = Path(__file__).resolve().parent.parent / "configs" / "site_example.yaml"
 MAX_VIEW_W = 1600  # 원본(1920·4K)이 화면을 넘지 않게 줄여 보여 준다
+MAX_VIEW_H = 900   # 세로 영상도 창 아래쪽이 화면(작업 표시줄 포함)을 넘지 않게. 가로 1920·4K는 1600x900이라 그대로
 MAX_ZOOM = 8.0
 SEEK_SEC = 5.0
 POLY = "3+"  # 점 개수 자리: 3점 이상 다각형 하나
@@ -146,7 +147,7 @@ def collect(video: Video, start_sec: float = 0.0, steps: list = STEPS, existing:
     """창에서 단계별로 점을 받는다. Esc면 None. existing = 화면에 같이 보여 줄 기존 영역."""
     frame, t_sec = video.frame_at(start_sec)
     h, w = frame.shape[:2]
-    scale = min(1.0, MAX_VIEW_W / w)
+    scale = min(1.0, MAX_VIEW_W / w, MAX_VIEW_H / h)
     view_size = (round(w * scale), round(h * scale))
     done, current, polys, step = {}, [], {}, 0  # polys = 이번에 찍은 다른 횡단보도 {이름: 점들}
     # 화면 좌표 v ↔ 원본 좌표 o: o = (x0, y0) + v / k,  k = scale × zoom
