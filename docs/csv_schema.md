@@ -6,7 +6,7 @@
 
 - 인코딩 **UTF-8 with BOM** (`encoding="utf-8-sig"`, 엑셀에서 한글이 깨지지 않게).
 - `video` = 영상 파일 이름에서 확장자를 뺀 것 (예: `A_20261031_0800`). 출력 파일 이름도 `<video>.csv`.
-- `cls` 값은 `vehicle` / `motorcycle` / `pedestrian` 셋뿐이다 (`configs/detect.yaml`의 매핑).
+- `cls` 값은 `vehicle` / `motorcycle` / `pedestrian` 셋뿐이다. 차(car)·버스·트럭은 모두 `vehicle`이다 (`configs/detect.yaml`의 `class_map`).
 - 시간은 영상 시작부터 초(`_s`), 거리는 m(`_m`), 속도는 m/s(`_mps`).
 - 미터 좌표: 원점 = 횡단보도 **좌상** 모서리, x축 = 좌상→우상(`width_m` 변), y축 = 좌상→좌하(`length_m` 변). 모서리 순서는 `configs/site_example.yaml`.
 - 판정 값은 코드에서 `yield` / `no_yield`를 쓴다. 문서에서는 미양보 = 위반 의심으로 부른다(README 용어 대응표).
@@ -21,7 +21,7 @@
 | `t_s` | 시각 |
 | `track_id` | 추적 ID |
 | `cls` | 클래스 |
-| `coco_cls` | COCO 원래 클래스 (`car` / `bus` / `truck` / `motorcycle` / `person`). events에 트랙의 최빈값으로 옮기고, judged의 `vehicle_type`(승용·버스·트럭·오토바이)으로 바꾼다 |
+| `coco_cls` | 검출 모델의 원래 클래스 (`car` / `bus` / `truck` / `motorcycle` / `person`. 미세조정 모델은 사람이 `pedestrian`). events에 트랙의 최빈값으로 옮기고, judged의 `vehicle_type`(차·버스·트럭·오토바이)으로 바꾼다 |
 | `conf` | 검출 신뢰도 |
 | `x1, y1, x2, y2` | 박스 (픽셀) |
 | `bx_m, by_m` | 박스 하단 중심점의 미터 좌표 |
@@ -69,7 +69,7 @@ features의 컬럼 전부 + 이벤트 로그 필드(기술서 3.3).
 | --- | --- |
 | `intersection` | 교차로 이름 (`configs/site_*.yaml`의 `site`, 대시보드 필터 기준) |
 | `wall_time`, `slot` | 실제 시각, 시간대(1시간, 예: 08–09시). 영상 파일 이름의 촬영 시작 시각 기준 |
-| `vehicle_type` | 승용·버스·트럭·오토바이 |
+| `vehicle_type` | 차·버스·트럭·오토바이 |
 | `ped_result` | `yield` / `no_yield` / `exclude` (+ 제외 사유 `ped_exclude_reason`: `occluded` 가림 의심, `not_right_turn` 우회전 아님(사람 확인 때만), `camera_moved` 카메라가 움직인 구간) |
 | `red_result` | `stopped` / `not_stopped` / `exclude` / `na` (적색 아님 = 녹색·황색) (+ 제외 사유 `red_exclude_reason`: `signal_unknown` 신호 불명, `stopline_hidden` 정지선 가려짐, `rturn_signal` 우회전 전용 신호, `camera_moved` 카메라가 움직인 구간) |
 | `status` | `auto` (규칙 판정 그대로). 사람이 확인한 이벤트는 labels에 행이 생기고 `eval.report`가 합쳐 `reviewed`로 센다 |

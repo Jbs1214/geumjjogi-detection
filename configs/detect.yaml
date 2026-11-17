@@ -23,9 +23,12 @@ class_map:
   truck: vehicle
   motorcycle: motorcycle
   person: pedestrian
+  pedestrian: pedestrian # 미세조정 모델의 사람 클래스 이름 (COCO에는 없어 사전학습 모델에는 영향 없음)
 
-# 미세조정 라벨 ID
+# 미세조정 라벨 ID (11.17 5종으로 변경, docs/labeling_guide.md 3)
 train_ids:
-  vehicle: 0
+  car: 0
   motorcycle: 1
   pedestrian: 2
+  bus: 3
+  truck: 4
