@@ -10,7 +10,8 @@
 그 프레임에 검출이 빠진 보행자 트랙은 앞뒤 행 간격이 merge_gap_s 이하이면 직선 보간한 위치로 센다
 (검출이 잠깐 빠진 순간 서 있던 보행자가 0명으로 세어지지 않게. 트랙 이어 붙이기와 같은 기준).
 entry_speed는 출구 진입 순간 속도(미터 좌표 speed_window_s 이동평균 후 차분, 참고값).
-signal_at_stopline·stop_sec_before_line은 2단계라 지금은 비워 둔다.
+2단계(--signal을 줄 때만 채운다, 기술서 2.3): signal_at_stopline은 정지선 통과 시각(t_stopline_s)의 빨간불 시간표 상태,
+stop_sec_before_line은 통과 전 정지선 앞 stopline_zone_m 안에서 stop_speed_mps 이하로 이어진 가장 긴 시간(이어 본 이벤트는 앞 트랙 경로 포함).
 
 입력: outputs/events/<영상>.csv, outputs/tracks/<영상>.csv, configs/site_<영상>.yaml,
       outputs/signal/<영상>.csv (2단계, 정지선 통과 시각의 신호 상태 조회)
@@ -72,18 +73,50 @@ def count_lost(ends: pd.DataFrame, t_entry: float, poly_px: list, poly_m: np.nda
     return int(sum(cv2.pointPolygonTest(poly_m, (float(x), float(y)), True) > edge_m for x, y in zip(e["bx_m"], e["by_m"])))
 
 
-def speed_at(v: pd.DataFrame, frame: int, window: int) -> float:
-    """트랙 한 개(프레임 순)의 frame 순간 속도(m/s). 미터 좌표를 window 프레임 중심 이동평균한 뒤 차분한다."""
+def speeds(v: pd.DataFrame, window: int) -> pd.Series:
+    """트랙(프레임 순)의 행마다 직전 행부터의 속도(m/s). 미터 좌표를 window 프레임 중심 이동평균한 뒤 차분한다."""
     sx = v["bx_m"].rolling(window, center=True, min_periods=1).mean()
     sy = v["by_m"].rolling(window, center=True, min_periods=1).mean()
-    speed = (np.hypot(sx.diff(), sy.diff()) / v["t_s"].diff())[v["frame"] == frame]
+    return np.hypot(sx.diff(), sy.diff()) / v["t_s"].diff()
+
+
+def speed_at(v: pd.DataFrame, frame: int, window: int) -> float:
+    """트랙 한 개(프레임 순)의 frame 순간 속도(m/s)."""
+    speed = speeds(v, window)[v["frame"] == frame]
     return float(speed.iloc[0]) if len(speed) else np.nan
+
+
+def signal_at(seg: pd.DataFrame, t: float) -> str:
+    """빨간불 시간표(outputs/signal)에서 t가 들어 있는 구간의 상태. 구간은 시작 포함·끝 제외. t가 없거나 표 밖이면 빈 값."""
+    hit = seg.loc[(seg["t_start_s"] <= t) & (t < seg["t_end_s"]), "state"]
+    return hit.iloc[0] if len(hit) else ""
+
+
+def stop_sec_before_line(path: pd.DataFrame, t_stopline: float, line_m: np.ndarray, window: int,
+                         zone_m: float, stop_speed: float, min_dur: float) -> float:
+    """정지선 통과 전, 정지선 앞 zone_m 안에서 속도가 stop_speed 이하로 이어진 가장 긴 시간(초). 멈춘 적이 없으면 0.
+    행의 속도는 직전 행부터의 구간 속도라, 그 구간 길이(검출이 빠진 동안 포함)를 정지 시간으로 더한다.
+    잴 수 없으면 nan(→ stopline_hidden 제외): 통과 시각이 없음, 구간 안에 속도를 잴 행이 없음,
+    구간에서 검출이 min_dur보다 길게 빠졌고(그 사이 멈췄는지 모름) 보이는 정지가 min_dur에 못 미침."""
+    if np.isnan(t_stopline):
+        return np.nan
+    (ax, ay), (bx, by) = line_m
+    dist = np.abs((bx - ax) * (path["by_m"] - ay) - (by - ay) * (path["bx_m"] - ax)) / np.hypot(bx - ax, by - ay)
+    speed, dt = speeds(path, window), path["t_s"].diff()
+    before = (path["t_s"] <= t_stopline).to_numpy()
+    near = (dist <= zone_m).to_numpy() & before
+    seen = near & speed.notna().to_numpy()
+    if not seen.any():
+        return np.nan
+    stopped = seen & (speed <= stop_speed).to_numpy()
+    run = (~stopped).cumsum()   # 정지가 끊길 때마다 번호가 바뀐다
+    longest = float(dt[stopped].groupby(run[stopped]).sum().max()) if stopped.any() else 0.0
+    unseen = before & (near | np.r_[False, near[:-1]]) & (dt > min_dur).to_numpy() & ~stopped
+    return np.nan if unseen.any() and longest < min_dur else longest
 
 
 def build_features(events: str, tracks: str, site: str, signal: str | None = None,
                    config: str = "configs/detect.yaml", out_dir: str = "outputs/features") -> Path:
-    if signal:
-        raise SystemExit("2단계(정지선 통과 시각의 신호 상태)는 아직 구현 전이다. --signal 없이 실행한다")
     with open(config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     with open(site, encoding="utf-8") as f:
@@ -102,6 +135,9 @@ def build_features(events: str, tracks: str, site: str, signal: str | None = Non
     ends = peds.groupby("track_id").tail(1)
     links = ev["link_track_id"] if "link_track_id" in ev else pd.Series(np.nan, index=ev.index)  # 컬럼 추가 전 events도 읽음
     vehicles = dict(tuple(tr[tr["track_id"].isin(ev["track_id"]) | tr["track_id"].isin(links.dropna())].groupby("track_id")))
+    if signal:
+        seg = pd.read_csv(signal, encoding="utf-8-sig")
+        line_m = to_meters(H, np.array(s["stop_line_px"], dtype=float))
 
     rows = []
     for e, link in zip(ev.itertuples(), links):
@@ -116,15 +152,24 @@ def build_features(events: str, tracks: str, site: str, signal: str | None = Non
             if n:
                 names.append(name)
             lost += count_lost(ends, frame / fps, polys[name], polys_m[name], cfg["merge_gap_s"], s["occluded_edge_m"])
-        rows.append((speed_at(v, exit_frame, window), lost, at, ";".join(names)))
+        sig, stop = "", np.nan
+        if signal:
+            sig = signal_at(seg, e.t_stopline_s)
+            stop = stop_sec_before_line(path, e.t_stopline_s, line_m, window,
+                                        s["stopline_zone_m"], s["stop_speed_mps"], s["stop_min_duration_s"])
+        rows.append((speed_at(v, exit_frame, window), lost, at, ";".join(names), sig, stop))
 
-    out_df = pd.concat([ev, pd.DataFrame(rows, columns=NEW_COLUMNS[:4], index=ev.index)], axis=1)
-    out_df = out_df.assign(signal_at_stopline="", stop_sec_before_line=np.nan).round({"entry_speed": 3})
+    out_df = pd.concat([ev, pd.DataFrame(rows, columns=NEW_COLUMNS, index=ev.index)], axis=1)
+    out_df = out_df.round({"entry_speed": 3, "stop_sec_before_line": 3})
     out = Path(out_dir) / f"{Path(events).stem}.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(out, index=False, encoding="utf-8-sig")
     print(f"이벤트 {len(out_df)}건: 진입 순간 보행자 있음 {(out_df['peds_at_entry'] > 0).sum()}건, "
           f"가림 의심 후보 {((out_df['peds_at_entry'] == 0) & (out_df['peds_lost'] > 0)).sum()}건")
+    if signal:
+        red = out_df["signal_at_stopline"] == "red"
+        print(f"정지선 통과 시각의 신호 {out_df['signal_at_stopline'].replace('', '없음').value_counts().to_dict()}, "
+              f"빨간불 중 정지 시간을 못 잰 것 {int((red & out_df['stop_sec_before_line'].isna()).sum())}건")
     print(f"저장: {out}")
     return out
 
