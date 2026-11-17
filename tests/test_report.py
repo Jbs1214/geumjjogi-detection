@@ -41,6 +41,8 @@ class WilsonTest(unittest.TestCase):
         # 미양보 0건·전부 미양보일 때 계산 오차로 -1.4e-17, 1.0000000000000002가 나오던 건수
         self.assertEqual(wilson_ci(0, 15)[0], 0.0)
         self.assertEqual(wilson_ci(5, 5)[1], 1.0)
+        self.assertEqual(wilson_ci(0, 44)[0], 0.0)  # 6.9e-18이 나와 위반율 그래프(yerr 음수)가 멈추던 건수
+        self.assertEqual(wilson_ci(44, 44)[1], 1.0)
 
 
 class RateTableTest(unittest.TestCase):
