@@ -96,7 +96,7 @@ class JudgeFileTest(unittest.TestCase):
         self.assertEqual(list(out["red_exclude_reason"]), ["", "camera_moved", ""])
         self.assertEqual(list(out["slot"]), ["08–09시", "08–09시", "09–10시"])
         self.assertEqual(out["wall_time"][2], "2026-10-31 09:01:40")
-        self.assertEqual(list(out["vehicle_type"]), ["승용", "오토바이", "버스"])
+        self.assertEqual(list(out["vehicle_type"]), ["차", "오토바이", "버스"])
         self.assertEqual(list(out["intersection"]), ["A"] * 3)
         self.assertEqual(list(out["status"]), ["auto"] * 3)
         self.assertEqual(list(out["clip"]), [""] * 3)

@@ -13,7 +13,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-VEHICLE_TYPE = {"car": "승용", "bus": "버스", "truck": "트럭", "motorcycle": "오토바이"}
+VEHICLE_TYPE = {"car": "차", "bus": "버스", "truck": "트럭", "motorcycle": "오토바이"}
 
 
 def judge_ped(peds_lost: int, peds_at_entry: int, camera_moved: bool) -> tuple[str, str]:
