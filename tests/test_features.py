@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from features.build import NEW_COLUMNS, build_features
+from features.build import NEW_COLUMNS, build_features, signal_at
 from tracking.homography import compute_homography, to_meters
 
 FPS = 10.0
@@ -18,7 +18,11 @@ EXIT = [[0, 0], [100, 0], [100, 100], [0, 100]]
 SITE = {"crosswalk": {"corners_px": EXIT, "area_px": [], "width_m": 10.0, "length_m": 10.0},
         "other_crosswalks_px": {"near": [[200, 0], [300, 0], [300, 100], [200, 100]],
                                 "diag": [[400, 0], [500, 0], [500, 100], [400, 100]]},
-        "occluded_edge_m": 1.0}
+        "occluded_edge_m": 1.0,
+        "stop_line_px": [[325, 0], [325, 100]],   # 세로선. 차는 오른쪽(x > 325)에서 와서 넘는다
+        "stopline_zone_m": 3.0, "stop_speed_mps": 0.5, "stop_min_duration_s": 1.0}
+SIGNAL = pd.DataFrame({"video": "A_20261031_0800", "t_start_s": [0.0, 1.0, 5.0], "t_end_s": [1.0, 5.0, 6.0],
+                       "state": ["not_red", "red", "unknown"]})
 CONFIG = {"merge_gap_s": 2.0, "speed_window_s": 0.5}
 H = compute_homography(EXIT, 10.0, 10.0)
 
@@ -47,6 +51,9 @@ def run(*peds, signal=None, car=CAR, events=EVENTS):
         events.to_csv(d / "A_20261031_0800.csv", index=False, encoding="utf-8-sig")
         (d / "site.yaml").write_text(yaml.safe_dump(SITE), encoding="utf-8")
         (d / "detect.yaml").write_text(yaml.safe_dump(CONFIG), encoding="utf-8")
+        if signal is not None:
+            signal.to_csv(d / "signal.csv", index=False, encoding="utf-8-sig")
+            signal = str(d / "signal.csv")
         out = build_features(str(d / "A_20261031_0800.csv"), str(d / "tracks.csv"), str(d / "site.yaml"),
                              signal, str(d / "detect.yaml"), out_dir=str(d / "out"))
         return pd.read_csv(out, encoding="utf-8-sig", keep_default_na=False).iloc[0]
@@ -117,9 +124,67 @@ class OutputTest(unittest.TestCase):
         self.assertEqual(list(r.index), list(EVENTS.columns) + NEW_COLUMNS)
         self.assertEqual((r["signal_at_stopline"], r["stop_sec_before_line"], r["no_yield_at"]), ("", "", ""))
 
-    def test_signal_not_implemented(self):
-        with self.assertRaises(SystemExit):
-            run(signal="outputs/signal/A_20261031_0800.csv")
+
+
+def drive(stop_x, stop_frames, start_x=400):
+    """start_x에서 프레임마다 10 px(10 m/s) 왼쪽으로 오다가 stop_x에서 stop_frames 프레임 서 있고 다시 간다(x 100까지).
+    돌려주는 값: (트랙, 정지선 x 325를 넘은 시각, 출구 진입 시각)."""
+    xs = list(range(start_x, stop_x, -10)) + [stop_x] * (stop_frames + 1) + list(range(stop_x - 10, 90, -10))
+    t_line = next(i for i, x in enumerate(xs) if x < 325) / FPS
+    return track(1, "vehicle", range(len(xs)), [(x, 50) for x in xs]), t_line, xs.index(100) / FPS
+
+
+def stage2(car, t_stopline, t_enter):
+    return run(signal=SIGNAL, car=car, events=EVENTS.assign(t_enter_s=t_enter, t_stopline_s=t_stopline))
+
+
+class SignalAtTest(unittest.TestCase):
+    def test_state_of_segment(self):
+        self.assertEqual([signal_at(SIGNAL, t) for t in (0.3, 2.0, 5.5)], ["not_red", "red", "unknown"])
+
+    def test_boundary_belongs_to_next_segment(self):
+        self.assertEqual(signal_at(SIGNAL, 1.0), "red")
+
+    def test_no_time_or_outside_table_is_empty(self):
+        self.assertEqual([signal_at(SIGNAL, np.nan), signal_at(SIGNAL, 99.0)], ["", ""])
+
+
+class StopBeforeLineTest(unittest.TestCase):
+    def test_stop_within_zone(self):
+        r = stage2(*drive(stop_x=330, stop_frames=20))     # 정지선 0.5 m 앞에서 2초
+        self.assertEqual(r["signal_at_stopline"], "red")
+        self.assertGreaterEqual(float(r["stop_sec_before_line"]), 1.0)
+        self.assertLessEqual(float(r["stop_sec_before_line"]), 2.0)
+
+    def test_short_stop_is_below_threshold(self):
+        r = stage2(*drive(stop_x=330, stop_frames=5))      # 0.5초
+        self.assertLess(float(r["stop_sec_before_line"]), 1.0)
+
+    def test_stop_outside_zone_is_not_counted(self):
+        r = stage2(*drive(stop_x=390, stop_frames=20, start_x=450))   # 정지선 6.5 m 앞
+        self.assertEqual(float(r["stop_sec_before_line"]), 0.0)
+
+    def test_no_stop(self):
+        r = stage2(CAR, 0.3, 2.5)                          # 10 m/s로 그대로 통과
+        self.assertEqual((r["signal_at_stopline"], float(r["stop_sec_before_line"])), ("not_red", 0.0))
+
+    def test_no_stopline_time_is_empty(self):
+        r = stage2(CAR, np.nan, 2.5)
+        self.assertEqual((r["signal_at_stopline"], r["stop_sec_before_line"]), ("", ""))
+
+    def test_track_starting_at_line_is_empty(self):
+        r = stage2(CAR[CAR.frame >= 3], 0.3, 2.5)          # 정지선 앞 구간에 속도를 잴 행이 없음
+        self.assertEqual(r["stop_sec_before_line"], "")
+
+    def test_unseen_gap_at_line_is_empty(self):
+        car = CAR[(CAR.frame <= 2) | (CAR.frame >= 20)]    # 정지선을 넘는 1.8초 동안 검출이 없고 10 m/s로 지나감
+        self.assertEqual(stage2(car, 2.0, 2.5)["stop_sec_before_line"], "")
+
+    def test_slow_gap_at_line_counts_as_stop(self):
+        xs = [350, 340, 330] + [320] * 3                   # 검출이 빠진 2초 동안 1 m만 움직임
+        car = track(1, "vehicle", [0, 1, 2, 22, 23, 24], [(x, 50) for x in xs])
+        car = pd.concat([car, track(1, "vehicle", range(25, 47), [(310 - 10 * i, 50) for i in range(22)])])
+        self.assertGreaterEqual(float(stage2(car, 2.2, 4.6)["stop_sec_before_line"]), 1.0)
 
 
 if __name__ == "__main__":

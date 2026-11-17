@@ -59,7 +59,7 @@ events의 컬럼 전부 + 아래 컬럼. MVP에서는 시계열을 요약값으�
 | `peds_at_entry` | 명 | 경로상 각 횡단보도(`crosswalk`=`exit`, `other_crosswalks_px`)에 차량이 진입한 순간 그 위에 있던 보행자 수의 합 (1 이상이면 미양보, 0이면 양보) |
 | `no_yield_at` | - | 진입 순간 보행자가 있던 횡단보도 이름 (`exit` 또는 `other_crosswalks_px`의 이름, 여러 개면 `;`로 구분, 없으면 비움) |
 | `signal_at_stopline` | - | 정지선 통과 시각의 신호 상태 (`red` / `not_red` / `unknown`) |
-| `stop_sec_before_line` | s | 정지선 앞 `stopline_zone_m` 안에서 정지 기준을 채운 가장 긴 시간 (2단계, `stop_min_duration_s` 이상이면 일시정지) |
+| `stop_sec_before_line` | s | 정지선 앞 `stopline_zone_m` 안에서 정지 기준을 채운 가장 긴 시간 (2단계, `stop_min_duration_s` 이상이면 일시정지). 잴 수 없으면 비움(→ `stopline_hidden`): `t_stopline_s`가 없음, 그 구간에 속도를 잴 행이 없음, 그 구간에서 검출이 `stop_min_duration_s`보다 길게 빠졌고 보이는 정지가 기준에 못 미침 |
 
 ## 5. judged — `outputs/judged/<video>.csv` (육주영, `rules.rule`)
 

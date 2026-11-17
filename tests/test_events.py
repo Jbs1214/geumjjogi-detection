@@ -4,10 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import yaml
 
-from tracking.events import COLUMNS, exit_area, extract_events, find_events
+from tracking.events import COLUMNS, exit_area, extract_events, find_events, stopline_time
 
 FPS = 10.0
 APPROACH = [[100, 0], [200, 0], [200, 100], [100, 100]]  # 오른쪽 위
@@ -124,6 +125,57 @@ class ExitAreaTest(unittest.TestCase):
         self.assertEqual(exit_area({"crosswalk": {"corners_px": EXIT, "area_px": AREA}}), AREA)
 
 
+STOP_LINE = [[100, 120], [200, 120]]  # 진입로 아래 가로선. 출구(아래쪽)가 지난 쪽
+AFTER = (50, 250)                     # 출구 영역 안의 점
+
+
+class StoplineTimeTest(unittest.TestCase):
+    def test_first_frame_past_line(self):
+        self.assertAlmostEqual(stopline_time(path(1, RIGHT_TURN), STOP_LINE, AFTER), 0.1)
+
+    def test_jitter_on_line_uses_last_crossing(self):
+        pts = [(150, 50), (150, 125), (150, 115), (150, 125), (150, 118), (150, 130), (50, 250)]
+        self.assertAlmostEqual(stopline_time(path(1, pts), STOP_LINE, AFTER), 0.5)
+
+    def test_track_starting_past_line_has_no_time(self):
+        self.assertTrue(np.isnan(stopline_time(path(1, [(150, 150), (50, 250)]), STOP_LINE, AFTER)))
+
+    def test_line_is_extended_beyond_its_ends(self):
+        line = [[300, 120], [400, 120]]   # 차가 끝점 바깥을 지남
+        self.assertAlmostEqual(stopline_time(path(1, RIGHT_TURN), line, AFTER), 0.1)
+
+
+def extract(df, **site):
+    """가짜 트랙으로 extract_events를 돌린 결과 표."""
+    with tempfile.TemporaryDirectory() as d:
+        tracks = Path(d) / "A_20261031_0800.csv"
+        df.to_csv(tracks, index=False, encoding="utf-8-sig")
+        site_path = Path(d) / "site.yaml"
+        site_path.write_text(yaml.safe_dump({"approach_roi_px": APPROACH,
+                                             "crosswalk": {"corners_px": EXIT, "area_px": []}, **site}), encoding="utf-8")
+        config = Path(d) / "detect.yaml"
+        config.write_text(yaml.safe_dump({"link_gap_s": 3.0, "link_dist_box": 2.0}), encoding="utf-8")
+        return pd.read_csv(extract_events(str(tracks), str(site_path), str(config), out_dir=d), encoding="utf-8-sig")
+
+
+class ExtractStoplineTest(unittest.TestCase):
+    def test_stopline_time_written(self):
+        out = extract(path(1, RIGHT_TURN), stop_line_px=STOP_LINE)
+        self.assertAlmostEqual(out["t_stopline_s"].iloc[0], 0.1)
+
+    def test_linked_event_uses_both_tracks(self):
+        out = extract(broken(), stop_line_px=[[100, 100], [200, 100]])   # 앞 트랙은 선 앞(y 90)에서 끝, 뒤 트랙은 선 뒤(y 105)에서 시작
+        self.assertEqual(list(out["track_id"]), [2])
+        self.assertAlmostEqual(out["t_stopline_s"].iloc[0], 1.1)
+
+    def test_crossing_after_exit_entry_is_ignored(self):
+        pts = RIGHT_TURN + [(150, 10), (150, 150)]   # 선(y 20) 뒤에서 시작, 출구 진입 뒤에야 선을 넘음
+        self.assertTrue(extract(path(1, pts), stop_line_px=[[100, 20], [200, 20]])["t_stopline_s"].isna().all())
+
+    def test_unset_stop_line_leaves_empty(self):
+        self.assertTrue(extract(path(1, RIGHT_TURN), stop_line_px=[[0, 0], [0, 0]])["t_stopline_s"].isna().all())
+
+
 class ExtractEventsTest(unittest.TestCase):
     def test_csv_schema_and_ids(self):
         with tempfile.TemporaryDirectory() as d:
@@ -139,7 +191,7 @@ class ExtractEventsTest(unittest.TestCase):
         self.assertEqual(list(out["event_id"]), [1, 2])
         self.assertEqual(list(out["track_id"]), [4, 7])
         self.assertEqual(set(out["video"]), {"A_20261031_0800"})
-        self.assertTrue(out["t_stopline_s"].isna().all())
+        self.assertTrue(out["t_stopline_s"].isna().all())   # 정지선을 지정하지 않은 설정
 
 
 if __name__ == "__main__":
