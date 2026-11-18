@@ -59,7 +59,10 @@ events의 컬럼 전부 + 아래 컬럼. MVP에서는 시계열을 요약값으�
 | `peds_at_entry` | 명 | 경로상 각 횡단보도(`crosswalk`=`exit`, `other_crosswalks_px`)에 차량이 진입한 순간 그 위에 있던 보행자 수의 합 (1 이상이면 미양보, 0이면 양보) |
 | `no_yield_at` | - | 진입 순간 보행자가 있던 횡단보도 이름 (`exit` 또는 `other_crosswalks_px`의 이름, 여러 개면 `;`로 구분, 없으면 비움) |
 | `signal_at_stopline` | - | 정지선 통과 시각의 신호 상태 (`red` / `not_red` / `unknown`) |
-| `stop_sec_before_line` | s | 정지선 앞 `stopline_zone_m` 안에서 정지 기준을 채운 가장 긴 시간 (2단계, `stop_min_duration_s` 이상이면 일시정지). 잴 수 없으면 비움(→ `stopline_hidden`): `t_stopline_s`가 없음, 그 구간에 속도를 잴 행이 없음, 그 구간에서 검출이 `stop_min_duration_s`보다 길게 빠졌고 보이는 정지가 기준에 못 미침 |
+| `stop_level` | - | 2단계 정지 위치 (`strict` 엄격 구간에서 정지 / `minor` 보통 구간에서만 정지 / `none` 정지 없음). 정지 = 구간 안에서 차 앞 끝이 1초 동안 max(`stop_move_min_px`, 박스 높이 × `stop_move_ratio`) 이하 이동(기술서 2.3). 판정할 수 없으면 비우고 사유를 `stop_note`에 적음 |
+| `stop_note` | - | `stop_level`이 빈 이유: `stopline_hidden`(`t_stopline_s`가 없음, 구간에서 검출이 빠짐), `zone_unseen`(앞 끝이 처음 잡힐 때 이미 정지 구간 안이고 정지도 없음). 판정했으면 비움 |
+
+> 11.18 변경(코드 반영 전): 지금 `features.build`는 `stop_level`·`stop_note` 대신 `stop_sec_before_line`(정지선 앞 `stopline_zone_m` 안에서 0.5 m/s 이하가 이어진 가장 긴 시간)을 쓴다. 기술서 11.2.
 
 ## 5. judged — `outputs/judged/<video>.csv` (육주영, `rules.rule`)
 
@@ -71,7 +74,7 @@ features의 컬럼 전부 + 이벤트 로그 필드(기술서 3.3).
 | `wall_time`, `slot` | 실제 시각, 시간대(1시간, 예: 08–09시). 영상 파일 이름의 촬영 시작 시각 기준 |
 | `vehicle_type` | 차·버스·트럭·오토바이 |
 | `ped_result` | `yield` / `no_yield` / `exclude` (+ 제외 사유 `ped_exclude_reason`: `occluded` 가림 의심, `not_right_turn` 우회전 아님(사람 확인 때만), `camera_moved` 카메라가 움직인 구간) |
-| `red_result` | `stopped` / `not_stopped` / `exclude` / `na` (적색 아님 = 녹색·황색) (+ 제외 사유 `red_exclude_reason`: `signal_unknown` 신호 불명, `stopline_hidden` 정지선 가려짐, `rturn_signal` 우회전 전용 신호, `camera_moved` 카메라가 움직인 구간) |
+| `red_result` | `stopped`(준수) / `stopped_minor`(경미) / `not_stopped` / `exclude` / `na` (적색 아님 = 녹색·황색) (+ 제외 사유 `red_exclude_reason`: `signal_unknown` 신호 불명, `stopline_hidden` 정지선 가려짐, `zone_unseen` 정지 구간 진입을 못 봄, `rturn_signal` 우회전 전용 신호, `camera_moved` 카메라가 움직인 구간). 모드는 집계 때만 적용: 보통 모드는 `not_stopped`만, 엄격 모드는 `not_stopped`·`stopped_minor`를 위반 의심으로 셈 |
 | `status` | `auto` (규칙 판정 그대로). 사람이 확인한 이벤트는 labels에 행이 생기고 `eval.report`가 합쳐 `reviewed`로 센다 |
 | `clip` | 위반 의심 클립 경로 (`eval.clips`가 채움, 없으면 비움) |
 
@@ -84,4 +87,4 @@ features의 컬럼 전부 + 이벤트 로그 필드(기술서 3.3).
 | `<video>_<라벨러>.csv` (이벤트 라벨) | `video`, `event_id`, `cls`, `t_enter_s`, `ped_label`, `red_label`, `labeler`, `note` |
 | `<video>_red.csv` (빨간불 시각) | `video`, `t_start_s`, `t_end_s`, `labeler` |
 
-- `ped_label`: `yield` / `no_yield` / `exclude`. `red_label`: `stopped` / `not_stopped` / `exclude` / `na`.
+- `ped_label`: `yield` / `no_yield` / `exclude`. `red_label`: `stopped` / `stopped_minor` / `not_stopped` / `exclude` / `na`.
