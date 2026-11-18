@@ -1,0 +1,51 @@
+# A_20261114_1339 에서 찍은 것을 복사(같은 화각, 이동 3~5 px)
+site: A
+crosswalk:
+  corners_px:
+  - [1093, 597]
+  - [985, 661]
+  - [395, 578]
+  - [549, 535]
+  area_px:
+  - [1087, 635]
+  - [1038, 672]
+  - [396, 579]
+  - [550, 534]
+  - [1093, 597]
+  - [1051, 628]
+  width_m: 7.99
+  length_m: 23.85
+other_crosswalks_px:
+  diag:
+  - [980, 654]
+  - [1004, 704]
+  - [248, 847]
+  - [294, 771]
+  near:
+  - [1026, 691]
+  - [1298, 758]
+  - [1066, 1079]
+  - [573, 1050]
+camera_moved_s:
+  - [0.0, 20.0]
+  - [3219.0, 3240.0]
+approach_roi_px:
+- [1835, 858]
+- [1828, 910]
+- [1137, 791]
+- [1177, 747]
+right_turn_signal: false
+stop_line_px:
+- [1421, 789]
+- [1303, 1022]
+signal_roi_px:
+- [41, 482]
+- [58, 479]
+- [57, 493]
+- [42, 495]
+stop_speed_mps: 0.5
+stop_min_duration_s: 1.0
+stopline_zone_m: 3.0
+occluded_edge_m: 1.0
+signal_min_frames: 15
+signal_red_ratio_min: 0.005
