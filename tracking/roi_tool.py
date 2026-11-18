@@ -67,7 +67,7 @@ class Video:
         if not self.cap.isOpened():
             raise SystemExit(f"영상을 읽을 수 없다: {path}")
         fps = self.cap.get(cv2.CAP_PROP_FPS) or 30.0
-        self.duration = max(self.cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps - 1.0 / fps, 0.0)
+        self.duration = max(self.cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps - 1.0, 0.0)  # 마지막 프레임 시각으로 이동하면 읽히지 않는 영상이 있어(55초 영상 54.8초) 1초 여유
 
     def frame_at(self, sec: float) -> tuple[np.ndarray, float]:
         sec = min(max(sec, 0.0), self.duration)
