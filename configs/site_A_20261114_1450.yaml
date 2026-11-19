@@ -1,4 +1,4 @@
-# A_20261114_1339 에서 찍은 것을 복사(같은 화각, 이동 3~5 px)
+# tracking.roi_tool 로 생성: A_20261114_1450.mp4
 site: A
 crosswalk:
   corners_px:
@@ -27,8 +27,8 @@ other_crosswalks_px:
   - [1066, 1079]
   - [573, 1050]
 camera_moved_s:
-  - [0.0, 20.0]
-  - [3219.0, 3240.0]
+- [0.0, 20.0]
+- [3219.0, 3240.0]
 approach_roi_px:
 - [1835, 858]
 - [1828, 910]
@@ -36,8 +36,8 @@ approach_roi_px:
 - [1177, 747]
 right_turn_signal: false
 stop_line_px:
-- [1421, 789]
-- [1303, 1022]
+- [1408, 791]
+- [1290, 1019]
 signal_roi_px:
 - [41, 482]
 - [58, 479]
@@ -49,3 +49,8 @@ stopline_zone_m: 3.0
 occluded_edge_m: 1.0
 signal_min_frames: 15
 signal_red_ratio_min: 0.005
+stop_zone_px:
+- [1293, 767]
+- [1533, 810]
+- [1471, 1058]
+- [1138, 985]
