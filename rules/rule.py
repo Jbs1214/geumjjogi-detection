@@ -1,12 +1,11 @@
 # 담당: 육주영
 """규칙 판정기. docs/judgment_criteria.md의 기준(보행자 1단계, 정지선 2단계)을 그대로 코드로 옮긴다.
 
-입력: outputs/features/<영상>.csv, configs/site_<영상>.yaml (정지 기준값, stopline_zone_m, right_turn_signal, camera_moved_s)
-제외 사유 값은 docs/csv_schema.md 5절 (occluded·camera_moved / signal_unknown·stopline_hidden·rturn_signal·camera_moved)
+입력: outputs/features/<영상>.csv, configs/site_<영상>.yaml (right_turn_signal, camera_moved_s)
+제외 사유 값은 docs/csv_schema.md 5절 (occluded·camera_moved / signal_unknown·stopline_hidden·zone_unseen·rturn_signal·camera_moved)
 출력: outputs/judged/<영상>.csv (컬럼은 docs/csv_schema.md 5절)
 """
 import argparse
-import math
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +13,8 @@ import pandas as pd
 import yaml
 
 VEHICLE_TYPE = {"car": "차", "bus": "버스", "truck": "트럭", "motorcycle": "오토바이"}
+# features의 stop_level → red_result (기술서 2.3: 엄격 구간 정지 = 준수, 보통 구간에서만 정지 = 경미)
+RED_RESULT = {"strict": "stopped", "minor": "stopped_minor", "none": "not_stopped"}
 
 
 def judge_ped(peds_lost: int, peds_at_entry: int, camera_moved: bool) -> tuple[str, str]:
@@ -32,14 +33,14 @@ def judge_ped(peds_lost: int, peds_at_entry: int, camera_moved: bool) -> tuple[s
 
 def judge_red(
     signal_at_stopline: str | float,  # CSV의 빈 칸은 pandas가 nan(float)으로 읽는다
-    stop_sec_before_line: float,
-    stop_min_duration_s: float,
+    stop_level: str | float,
+    stop_note: str | float,
     right_turn_signal: bool,
     camera_moved: bool,
 ) -> tuple[str, str]:
     """이벤트 1건의 (red_result, red_exclude_reason). 보행자 판정과 독립이다.
     정지선 통과 시각의 신호가 적색일 때만 판정하고, 녹색·황색(not_red)은 na다.
-    적색인데 정지 시간을 잴 수 없으면(빈 값) 미정지로 단정하지 않고 제외한다."""
+    적색인데 정지 위치를 정하지 못했으면(stop_level 빈 값) 미정지로 단정하지 않고 stop_note를 사유로 제외한다."""
     if camera_moved:
         return "exclude", "camera_moved"
     if right_turn_signal:
@@ -48,11 +49,10 @@ def judge_red(
         return "na", ""
     if signal_at_stopline != "red":  # unknown이거나 신호 판정을 돌리지 않아 비어 있음
         return "exclude", "signal_unknown"
-    if math.isnan(stop_sec_before_line):
-        return "exclude", "stopline_hidden"
-    if stop_sec_before_line >= stop_min_duration_s:
-        return "stopped", ""
-    return "not_stopped", ""
+    result = RED_RESULT.get(stop_level)
+    if result is None:  # 정지 위치를 정하지 못함(features의 stop_note가 사유)
+        return "exclude", stop_note if isinstance(stop_note, str) and stop_note else "stopline_hidden"
+    return result, ""
 
 
 def in_camera_moved(t_enter_s: float, intervals: list) -> bool:
@@ -77,7 +77,7 @@ def judge(features: str, site: str, out_dir: str = "outputs/judged") -> None:
     moved = [in_camera_moved(t, cfg["camera_moved_s"]) for t in df["t_enter_s"]]
     results = [
         judge_ped(r.peds_lost, r.peds_at_entry, m)
-        + judge_red(r.signal_at_stopline, r.stop_sec_before_line, cfg["stop_min_duration_s"], cfg["right_turn_signal"], m)
+        + judge_red(r.signal_at_stopline, r.stop_level, r.stop_note, cfg["right_turn_signal"], m)
         for r, m in zip(df.itertuples(), moved)
     ]
     columns = ["ped_result", "ped_exclude_reason", "red_result", "red_exclude_reason"]

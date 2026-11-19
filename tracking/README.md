@@ -153,9 +153,10 @@ right_turn_signal: false # 영상을 보고 직접 적는다
 stop_line_px: []         # 건너뛰면 빈 값
 stop_zone_px: []         # 건너뛰면 빈 값
 signal_roi_px: [...]
-stop_speed_mps: 0.5      # 이하 기준값은 configs/site_example.yaml에서 복사
-stop_min_duration_s: 1.0
-stopline_zone_m: 3.0
+stop_min_duration_s: 1.0 # 이하 기준값은 configs/site_example.yaml에서 복사
+stop_move_min_px: 5
+stop_move_ratio: 0.1
+stop_strict_margin_ratio: 0.2
 occluded_edge_m: 1.0
 signal_min_frames: 5
 signal_red_ratio_min: 0.05
