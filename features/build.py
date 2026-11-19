@@ -7,6 +7,7 @@
 진입 순간: 출구는 이벤트의 t_enter_s, 다른 횡단보도는 그 차량 트랙이 출구 진입 전에 처음 들어간 프레임.
 끊긴 트랙을 이어 본 이벤트(events의 link_track_id)는 앞 트랙 경로까지 합쳐서 본다(경로상 횡단보도 전부, 기술서 11.1).
 차가 들어가지 않은 횡단보도는 세지 않는다. 점은 박스 하단 중심(픽셀), 출구 영역은 area_px(없으면 corners_px).
+보행자는 그 횡단보도의 ped_extra_px(줄무늬~연석 사이 차도)에 있어도 센다(차 진입 시각에는 쓰지 않음).
 그 프레임에 검출이 빠진 보행자 트랙은 앞뒤 행 간격이 merge_gap_s 이하이면 직선 보간한 위치로 센다
 (검출이 잠깐 빠진 순간 서 있던 보행자가 0명으로 세어지지 않게. 트랙 이어 붙이기와 같은 기준).
 entry_speed는 출구 진입 순간 속도(미터 좌표 speed_window_s 이동평균 후 차분, 참고값).
@@ -169,6 +170,7 @@ def build_features(events: str, tracks: str, site: str, signal: str | None = Non
 
     H = load_homography(s)
     polys = crosswalks(s)
+    extra = s.get("ped_extra_px") or {}  # 보행자만 세는 줄무늬~연석 사이 차도 {횡단보도 이름: 다각형}
     polys_m = {k: to_meters(H, np.array(p, dtype=float)).astype(np.float32) for k, p in polys.items()}
     peds = tr[tr["cls"] == "pedestrian"]
     ends = peds.groupby("track_id").tail(1)
@@ -188,7 +190,10 @@ def build_features(events: str, tracks: str, site: str, signal: str | None = Non
         lost, at, names = 0, 0, []
         for name, frame in sorted(vehicle_entries(path, polys, exit_frame).items(), key=lambda kv: kv[1]):
             pos = ped_positions_at(peds, frame, gap)
-            n = int(inside(polys[name], pos["x"], pos["y"]).sum())
+            hit = inside(polys[name], pos["x"], pos["y"])
+            if name in extra:  # 줄무늬~연석 사이 차도도 그 횡단보도로 센다. 겹친 자리의 사람도 한 번만
+                hit |= inside(extra[name], pos["x"], pos["y"])
+            n = int(hit.sum())
             at += n
             if n:
                 names.append(name)
