@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from tracking.events import COLUMNS, exit_area, extract_events, find_events, stopline_time
+from tracking.events import COLUMNS, drop_contained, exit_area, extract_events, find_events, stopline_time
 
 FPS = 10.0
 APPROACH = [[100, 0], [200, 0], [200, 100], [100, 100]]  # 오른쪽 위
@@ -16,12 +16,12 @@ EXIT = [[0, 200], [100, 200], [100, 300], [0, 300]]      # 왼쪽 아래 (homogr
 AREA = [[0, 150], [100, 150], [100, 300], [0, 300]]      # 사각형 위로 블록이 더 나온 판정 영역
 
 
-def path(track_id, points, cls="vehicle", coco="car", t0=0.0):
-    """points = 하단 중심 픽셀 [(x, y), ...]를 0.1초 간격 프레임으로. 박스 폭 10."""
+def path(track_id, points, cls="vehicle", coco="car", t0=0.0, w=10, h=20, conf=0.9):
+    """points = 하단 중심 픽셀 [(x, y), ...]를 0.1초 간격 프레임으로. 박스 폭 w(기본 10), 높이 h."""
     f0 = round(t0 * FPS)
     return pd.DataFrame([{
-        "frame": f0 + i, "t_s": (f0 + i) / FPS, "track_id": track_id, "cls": cls, "coco_cls": coco, "conf": 0.9,
-        "x1": x - 5, "y1": y - 20, "x2": x + 5, "y2": y, "bx_m": 0.0, "by_m": 0.0,
+        "frame": f0 + i, "t_s": (f0 + i) / FPS, "track_id": track_id, "cls": cls, "coco_cls": coco, "conf": conf,
+        "x1": x - w / 2, "y1": y - h, "x2": x + w / 2, "y2": y, "bx_m": 0.0, "by_m": 0.0,
     } for i, (x, y) in enumerate(points)])
 
 
@@ -67,6 +67,48 @@ class FindEventsTest(unittest.TestCase):
     def test_sorted_by_enter_time(self):
         df = pd.concat([path(1, RIGHT_TURN, t0=5.0), path(2, RIGHT_TURN, t0=1.0)])
         self.assertEqual(list(find_events(df, APPROACH, EXIT)["track_id"]), [2, 1])
+
+
+DETECT = {"link_gap_s": 3.0, "link_dist_box": 2.0, "dedup_gap_s": 2.0, "dedup_contain_min": 0.8, "dedup_frames_min": 0.8}
+
+
+def dedup(df, frames_min=0.8):
+    return drop_contained(df, find_events(df, APPROACH, EXIT), 2.0, 0.8, frames_min)
+
+
+def big(track_id, **kw):
+    """RIGHT_TURN을 도는 큰 박스(폭 40, 높이 40). 기본 박스(폭 10, 높이 20)가 그 안에 다 든다."""
+    return path(track_id, RIGHT_TURN, w=40, h=40, **kw)
+
+
+class DropContainedTest(unittest.TestCase):
+    def test_inner_box_event_dropped(self):
+        self.assertEqual(list(dedup(pd.concat([path(1, RIGHT_TURN), big(2)]))["track_id"]), [2])
+
+    def test_side_by_side_kept(self):
+        other = path(2, [(x + 30, y) for x, y in RIGHT_TURN])       # 옆 차: 박스가 안 겹침
+        self.assertEqual(len(dedup(pd.concat([path(1, RIGHT_TURN), other]))), 2)
+
+    def test_far_in_time_kept(self):
+        self.assertEqual(len(dedup(pd.concat([path(1, RIGHT_TURN), big(2, t0=3.0)]))), 2)
+
+    def test_motorcycle_not_compared(self):
+        df = pd.concat([path(1, RIGHT_TURN, cls="motorcycle", coco="motorcycle"), big(2)])
+        self.assertEqual(len(dedup(df)), 2)
+
+    def test_contained_in_few_frames_kept(self):
+        inner = path(1, [(190, 50), (190, 150), (50, 250)])         # 세 프레임 중 마지막에만 큰 박스 안
+        self.assertEqual(len(dedup(pd.concat([inner, big(2)]))), 2)
+
+    def test_coco_cls_from_higher_conf_track(self):
+        ev = dedup(pd.concat([path(1, RIGHT_TURN, coco="bus", conf=0.9), big(2, coco="truck", conf=0.5)]))
+        self.assertEqual((list(ev["track_id"]), list(ev["coco_cls"])), ([2], ["bus"]))
+
+    def test_off_when_zero(self):
+        self.assertEqual(len(dedup(pd.concat([path(1, RIGHT_TURN), big(2)]), frames_min=0)), 2)
+
+    def test_extract_reads_config(self):
+        self.assertEqual(list(extract(pd.concat([path(1, RIGHT_TURN), big(2)]))["track_id"]), [2])
 
 
 A_PART = [(150, 50), (150, 90)]       # 진입로 안에서 끝남 (박스 폭 10 → 이어 보기 거리 20 px)
@@ -154,7 +196,7 @@ def extract(df, **site):
         site_path.write_text(yaml.safe_dump({"approach_roi_px": APPROACH,
                                              "crosswalk": {"corners_px": EXIT, "area_px": []}, **site}), encoding="utf-8")
         config = Path(d) / "detect.yaml"
-        config.write_text(yaml.safe_dump({"link_gap_s": 3.0, "link_dist_box": 2.0}), encoding="utf-8")
+        config.write_text(yaml.safe_dump(DETECT), encoding="utf-8")
         return pd.read_csv(extract_events(str(tracks), str(site_path), str(config), out_dir=d), encoding="utf-8-sig")
 
 
@@ -185,7 +227,7 @@ class ExtractEventsTest(unittest.TestCase):
             site.write_text(yaml.safe_dump({"approach_roi_px": APPROACH,
                                             "crosswalk": {"corners_px": EXIT, "area_px": []}}), encoding="utf-8")
             config = Path(d) / "detect.yaml"
-            config.write_text(yaml.safe_dump({"link_gap_s": 3.0, "link_dist_box": 2.0}), encoding="utf-8")
+            config.write_text(yaml.safe_dump(DETECT), encoding="utf-8")
             out = pd.read_csv(extract_events(str(tracks), str(site), str(config), out_dir=d), encoding="utf-8-sig")
         self.assertEqual(list(out.columns), COLUMNS)
         self.assertEqual(list(out["event_id"]), [1, 2])
