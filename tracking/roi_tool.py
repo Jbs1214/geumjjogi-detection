@@ -1,6 +1,6 @@
 # 담당: 김민영
 """영상 한 장면에서 출구 횡단보도 네 모서리, 출구 판정 영역(선택), 경로가 지나는 다른 횡단보도(other_crosswalks_px),
-우회전 진입로 ROI, 정지선, 차량 신호등을 클릭해 교차로 설정 파일을 만든다.
+우회전 진입로 ROI, 정지선, 정지 구간, 차량 신호등을 클릭해 교차로 설정 파일을 만든다.
 다른 횡단보도는 화면에 보이는 부분만 다각형으로 찍는다(docs/judgment_criteria.md).
 출구 네 모서리는 실측 크기를 아는 직사각형(homography 기준)이라, 연석이 둥글어 사각형 밖으로 나온 블록은
 판정 영역(crosswalk.area_px)으로 따로 감싼다. 사각형을 늘리면 인도까지 들어가 기다리는 사람이 보행자로 세어진다.
@@ -46,16 +46,20 @@ STEPS = [
      "다 찍었으면 점 없이 Enter, 하나도 없으면 s"),
     ("approach_roi_px", 4, False, "APPROACH (lane past stop line to turn)", "4 points around the right-turn path",
      "우회전 진입로 영역 4점 (우회전 차로부터 정지선을 지나 꺾기 시작하는 곳까지, 우회전 경로만)"),
-    ("stop_line_px", 2, True, "STOP LINE", "2 ends. No line: front edge of the entry crosswalk",
-     "정지선 양 끝 2점 (2단계). 정지선이 없으면 진입 쪽 횡단보도 앞 가장자리 두 점. 2단계를 안 하면 s"),
+    ("stop_line_px", 2, True, "STOP LINE", "2 ends on the crosswalk-side edge of the white line. No line: entry crosswalk edge",
+     "정지선 양 끝 2점 (2단계). 흰 정지선의 횡단보도 쪽 가장자리에 찍는다(엄격 구간 경계). "
+     "정지선이 없으면 진입 쪽 횡단보도 앞 가장자리 두 점. 2단계를 안 하면 s"),
+    ("stop_zone_px", POLY, True, "STOP ZONE", "far edge 3 m behind stop line, near edge = entry crosswalk start. 3+ points",
+     "정지 구간 다각형 3점 이상 (2단계, 기술서 2.3). 먼 변 = 정지선 뒤 3 m(실측 길이를 자로 삼음), "
+     "가까운 변 = 진입 쪽 횡단보도 시작선(줄무늬의 정지선 쪽 가장자리). 2단계를 안 하면 s"),
     ("signal_roi_px", 4, True, "TRAFFIC LIGHT (car, not pedestrian)", "4 points around the RED lamp only",
      "우회전 방향 차량 신호등의 빨간 램프만 감싸는 4점 (초록·노랑 램프와 배경 제외. 2단계, 보행자 신호등 아님, s로 건너뛰기)"),
 ]
 COLORS = {"corners_px": (0, 255, 255), "area_px": (0, 140, 255), "other_crosswalks_px": (255, 200, 0), "approach_roi_px": (0, 255, 0),
-          "stop_line_px": (0, 0, 255), "signal_roi_px": (255, 0, 255)}
+          "stop_line_px": (0, 0, 255), "stop_zone_px": (128, 0, 255), "signal_roi_px": (255, 0, 255)}
 # --only 에 쓰는 짧은 이름
 ONLY = {"crosswalk": "corners_px", "exit_area": "area_px", "others": "other_crosswalks_px", "approach": "approach_roi_px",
-        "stop_line": "stop_line_px", "signal": "signal_roi_px"}
+        "stop_line": "stop_line_px", "stop_zone": "stop_zone_px", "signal": "signal_roi_px"}
 CROSSWALK_KEYS = ("corners_px", "area_px")  # yaml에서 crosswalk 아래에 들어가는 키
 
 
