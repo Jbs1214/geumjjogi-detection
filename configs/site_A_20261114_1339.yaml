@@ -42,9 +42,10 @@ signal_roi_px:
 - [58, 479]
 - [57, 493]
 - [42, 495]
-stop_speed_mps: 0.5
 stop_min_duration_s: 1.0
-stopline_zone_m: 3.0
+stop_move_min_px: 5
+stop_move_ratio: 0.1
+stop_strict_margin_ratio: 0.2
 occluded_edge_m: 1.0
 signal_min_frames: 15
 signal_red_ratio_min: 0.005
