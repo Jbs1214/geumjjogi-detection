@@ -6,9 +6,11 @@
 단속 우선 검토 시간대 TOP 3(표본 충분, 위반 의심 1건 이상)와 클립 보기, 현재 필터의 표를 CSV로 내려받기.
 "위반 의심 통계이며 실제 단속은 별도 확인이 필요하다" 문구를 항상 표시한다.
 위반 유형 "전체"는 두 유형을 나란히 보여 주고 위반율을 하나로 합치지 않는다(분모가 다르다).
+레포 루트 .env에 DB 접속 값이 있으면(dashboard/db.py) 로그인한 사람에게만 보여 주고 자료를 MySQL에서 읽는다. 가입은 신청 후 관리자 승인(관리자 전용 가입 승인 관리 페이지).
 """
 import sys
 from datetime import date
+from html import escape
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # streamlit run은 레포 루트를 import 경로에 넣지 않는다
@@ -17,6 +19,8 @@ import pandas as pd
 import streamlit as st
 import yaml
 
+from dashboard import db
+from dashboard.auth import PASSWORD_MIN, format_phone, signup_errors, verify_password
 from eval.report import rate_table, wilson_ci
 
 NOTICE = "위반 의심 통계이며 실제 단속은 별도 확인이 필요하다"
@@ -35,12 +39,36 @@ STYLE = """<style>
 h1 { color: #1f3a68 !important; }
 [class*="st-key-bad-"] [data-testid="stMetricValue"] { color: #c62828; }
 [class*="st-key-top-"] { background: #fdf1f0; border: 0; border-left: 5px solid #d32f2f; border-radius: 6px; }
+.account-chip { display: flex; align-items: center; gap: 10px; }
+.account-avatar { flex: none; width: 38px; height: 38px; border-radius: 50%; background: #1f3a68; color: #fff;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; }
+.account-name { font-weight: 700; line-height: 1.3; }
+.account-agency { font-size: 0.8rem; line-height: 1.3; color: #6b7280; }
+.account-role { margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: #e8eef7; color: #1f3a68;
+  font-size: 0.7rem; font-weight: 600; vertical-align: middle; }
 </style>"""
+ACCOUNT_CHIP = """<div class="account-chip"><div class="account-avatar">{initial}</div>
+<div><div class="account-name">{name}{role}</div><div class="account-agency">{agency}</div></div></div>"""
 SORTS = {  # 표시 이름: (정렬 컬럼, 오름차순)
     "위반율 높은 순": ("violation_rate", False),
     "시간대 순": ("slot", True),
     "판정 대상 많은 순": ("n_target", False),
 }
+SIGNUP_INPUTS = {  # 가입 화면의 칸(위에서 아래 순서): st.text_input 인자. * 는 필수
+    "email": {"label": "이메일 *", "type": "email", "validate": ""},  # 형식 검사는 signup_errors가 한다
+    "password": {"label": f"비밀번호 * ({PASSWORD_MIN}자 이상)", "type": "password"},
+    "confirm": {"label": "비밀번호 확인 *", "type": "password"},
+    "name": {"label": "이름 *"},
+    "agency": {"label": "소속 기관 *"},
+    "department": {"label": "부서"},
+    "job_position": {"label": "직급"},
+    "phone": {"label": "휴대폰 번호 (- 없이 숫자만)", "type": "phone", "placeholder": "01011112222"},
+}
+APPROVAL_COLUMNS = {  # 가입 승인 관리 페이지의 칸(users 표의 칸: 표시 이름)
+    "name": "이름", "email": "이메일", "agency": "소속 기관", "department": "부서", "job_position": "직급", "phone": "휴대폰 번호",
+}
+APPROVAL_WIDTHS = [2, 4, 3, 2, 2, 3, 1, 1]  # 위 여섯 칸 + 승인·거절 버튼
+SIGNUP_DONE = "가입 신청이 접수됐습니다. 관리자 승인 후 로그인할 수 있습니다."
 
 
 def load_judged(judged_dir: str) -> pd.DataFrame:
@@ -155,15 +183,128 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> Non
                         st.caption(f"파일 없음: {clip}")
 
 
-def main(judged_dir: str = "outputs/judged", config: str = "configs/eval.yaml") -> None:
+def login_page() -> None:
+    """로그인 전 화면: 로그인과 회원가입(신청 후 관리자가 승인해야 로그인된다)."""
+    _, middle, _ = st.columns(3)
+    login_tab, signup_tab = middle.tabs(["로그인", "회원가입"], key="auth-tab", on_change="rerun")
+    with login_tab:
+        if "auth-notice" in st.session_state:  # 가입 신청 직후 한 번 보여 준다
+            st.success(st.session_state.pop("auth-notice"))
+        with st.form("login"):
+            email = st.text_input("이메일", key="login-email")
+            password = st.text_input("비밀번호", type="password", key="login-pw")
+            if st.form_submit_button("로그인", key="login-submit"):
+                user = db.get_user(email.strip())
+                if user is None or not verify_password(password, user["password_hash"]):
+                    st.error("이메일 또는 비밀번호가 맞지 않습니다.")
+                elif user["status"] != "approved":
+                    st.warning("관리자 승인 대기 중입니다.")
+                else:
+                    st.session_state["user"] = {k: user[k] for k in ("id", "name", "agency", "role")}
+                    st.rerun()
+    with signup_tab:
+        signup_inputs()
+
+
+def signup_values() -> tuple[dict, str, str]:
+    """가입 칸에 지금 적힌 값: (users 표에 넣을 칸들, 비밀번호, 비밀번호 확인)."""
+    state = st.session_state
+    user = {name: state.get(f"signup-{name}", "").strip() for name in db.USER_FIELDS}
+    return user, state.get("signup-password", ""), state.get("signup-confirm", "")
+
+
+def signup_inputs() -> None:
+    """가입 칸들. 타이핑을 멈추면 바로 검사해 틀린 칸 아래에 이유를 적는다(live라 st.form 밖에 둔다)."""
+    user, password, confirm = signup_values()
+    values = {**user, "password": password, "confirm": confirm}
+    errors = signup_errors(user, password, confirm)
+    if "email" not in errors and db.get_user(user["email"]):
+        errors["email"] = "이미 가입된 이메일입니다."
+    tried = st.session_state.get("signup-tried", False)  # 가입 신청을 누른 뒤에는 빈 필수 칸에도 이유를 적는다
+
+    st.caption("가입을 신청하면 관리자가 확인한 뒤 승인합니다. * 는 필수입니다.")
+    for name, options in SIGNUP_INPUTS.items():
+        st.text_input(key=f"signup-{name}", live=True, max_chars=db.USER_FIELDS.get(name), **options)
+        if name in errors and (values[name] or tried):
+            st.caption(f":red[{errors[name]}]")
+    st.button("가입 신청", key="signup-submit", on_click=submit_signup)
+
+
+def submit_signup() -> None:
+    """가입 신청 버튼: 다시 검사하고, 통과하면 신청을 넣고 칸을 비운 뒤 로그인 탭으로 보낸다."""
+    state = st.session_state
+    user, password, confirm = signup_values()
+    if signup_errors(user, password, confirm) or not db.add_user(user, password):
+        state["signup-tried"] = True
+        return
+    for key in [key for key in state if key.startswith("signup-")]:
+        del state[key]
+    state["auth-tab"] = "로그인"
+    state["auth-notice"] = SIGNUP_DONE
+
+
+def account_bar(area, pending: list[dict] | None) -> None:
+    """화면 오른쪽 위: 로그인한 사람의 이름·소속기관(프로필 칩)과 로그아웃. pending(승인 대기 목록)은 관리자일 때만 준다."""
+    user = st.session_state["user"]
+    name, agency = escape(user["name"]), escape(user["agency"])  # 가입자가 적은 글자라 태그로 나가지 않게
+    role = '<span class="account-role">관리자</span>' if user["role"] == "admin" else ""
+    with area.container(horizontal=True, horizontal_alignment="right", vertical_alignment="center"):
+        st.html(ACCOUNT_CHIP.format(initial=escape(user["name"][:1]), name=name, role=role, agency=agency), width="content")
+        if pending is not None:  # 관리자: 대시보드 <-> 가입 승인 관리 페이지
+            approving = st.session_state.get("view") == "approval"
+            if st.button("대시보드" if approving else f"가입 승인 관리 ({len(pending)})", key="view-toggle"):
+                st.session_state["view"] = "dashboard" if approving else "approval"
+                st.rerun()
+        if st.button("로그아웃", key="logout"):
+            st.session_state.pop("view", None)
+            del st.session_state["user"]
+            st.rerun()
+
+
+def approval_page(pending: list[dict]) -> None:
+    """관리자 전용 가입 승인 관리 페이지: 신청자가 적은 정보를 표로 보고 승인하거나 거절한다."""
+    st.subheader(f"가입 승인 관리 (대기 {len(pending)}명)")
+    if not pending:
+        st.info("승인을 기다리는 가입 신청이 없습니다.")
+        return
+    for column, label in zip(st.columns(APPROVAL_WIDTHS), APPROVAL_COLUMNS.values()):
+        column.markdown(f"**{label}**")
+    for p in pending:
+        *cells, approve, reject = st.columns(APPROVAL_WIDTHS, vertical_alignment="center")
+        for cell, name in zip(cells, APPROVAL_COLUMNS):  # 신청자가 적은 글자라 서식 없이 그대로 보여 준다
+            cell.text((format_phone(p[name]) if name == "phone" else p[name]) or "-")
+        if approve.button("승인", key=f"approve-{p['id']}"):
+            db.approve_user(p["id"])
+            st.rerun()
+        if reject.button("거절", key=f"reject-{p['id']}"):
+            db.reject_user(p["id"])
+            st.rerun()
+
+
+def main(judged_dir: str = "outputs/judged", config: str = "configs/eval.yaml", use_db: bool = False) -> None:
     st.set_page_config(page_title="우회전 위반 의심 통계", layout="wide")
     st.markdown(STYLE, unsafe_allow_html=True)
-    st.title("우회전 위반율: 교차로·시간대별")
+    logged_in = use_db and "user" in st.session_state
+    # 로그인한 상태에서만 제목 줄 오른쪽 끝에 계정 표시를 둔다
+    title_area, account_area = st.columns([3, 2], vertical_alignment="center") if logged_in else (st.container(), None)
+    title_area.title("우회전 위반율: 교차로·시간대별")
     st.warning(NOTICE)
 
-    df = load_judged(judged_dir)
+    if use_db:
+        if not logged_in:
+            login_page()
+            return
+        pending = db.pending_users() if st.session_state["user"]["role"] == "admin" else None
+        account_bar(account_area, pending)
+        if pending is not None and st.session_state.get("view") == "approval":
+            approval_page(pending)
+            return
+        df = db.fetch_events()
+    else:
+        df = load_judged(judged_dir)
     if df.empty:
-        st.info(f"판정 결과가 없다. `{judged_dir}`에 judged CSV를 만든 뒤 다시 연다.")
+        where = "`python -m dashboard.db import <judged 폴더>`로 넣은" if use_db else f"`{judged_dir}`에 judged CSV를 만든"
+        st.info(f"판정 결과가 없다. {where} 뒤 다시 연다.")
         return
     with open(config, encoding="utf-8") as fp:
         min_n = yaml.safe_load(fp)["min_n_reference"]
@@ -191,4 +332,4 @@ def main(judged_dir: str = "outputs/judged", config: str = "configs/eval.yaml") 
 
 
 if __name__ == "__main__":
-    main()
+    main(use_db=db.configured())
