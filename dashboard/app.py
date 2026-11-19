@@ -20,6 +20,7 @@ import yaml
 from eval.report import rate_table, wilson_ci
 
 NOTICE = "위반 의심 통계이며 실제 단속은 별도 확인이 필요하다"
+EXPORT_NOTE = f"자동 판정 결과(사람 확인 전). {NOTICE}"
 TOP_N = 3
 KINDS = {  # 표시 이름: (판정 컬럼, 위반 아님, 위반 의심, 내려받기 파일 이름)
     "보행자 미양보": ("ped_result", "yield", "no_yield", "violation_rate.csv"),
@@ -69,7 +70,7 @@ def pct(x: float) -> str:
 
 def rate_views(table: pd.DataFrame, bad: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     """위반율 표(rate_table)를 화면용과 내려받기용으로 만든다.
-    화면용은 기획서 예시 화면대로 정수 %(위반율 0~100, 막대 칸), 내려받기용은 정밀도를 유지한다(위반율 0~1, 신뢰구간 소수 한 자리)."""
+    화면용은 기획서 예시 화면대로 정수 %(위반율 0~100, 막대 칸), 내려받기용은 숫자로 둔다(위반율과 신뢰구간 하한·상한 0~1, 소수 넷째 자리)."""
     ci = list(zip(table["ci_low"], table["ci_high"]))
     view = pd.DataFrame({
         "교차로": "교차로 " + table["intersection"].astype(str),
@@ -80,10 +81,11 @@ def rate_views(table: pd.DataFrame, bad: str) -> tuple[pd.DataFrame, pd.DataFram
         "신뢰구간": [f"{lo * 100:.0f}~{hi * 100:.0f}%" if pd.notna(lo) else "-" for lo, hi in ci],
         "신뢰도": table["note"].replace("", "표본 충분"),
     })
-    export = view.rename(columns={"신뢰구간": "95% 신뢰구간"}).assign(**{
-        "위반율": table["violation_rate"],
-        "95% 신뢰구간": [f"{lo:.1%} ~ {hi:.1%}" if pd.notna(lo) else "-" for lo, hi in ci],
-    })
+    export = view.drop(columns="신뢰구간").assign(**{
+        "위반율": table["violation_rate"].round(4),
+        "95% 신뢰구간 하한": table["ci_low"].round(4),
+        "95% 신뢰구간 상한": table["ci_high"].round(4),
+    })[["교차로", "시간대", "판정 대상", "위반 의심", "위반율", "95% 신뢰구간 하한", "95% 신뢰구간 상한", "신뢰도"]]
     return view, export
 
 
@@ -107,6 +109,12 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> Non
     )
 
     view, export = rate_views(table, bad)
+    export = export.assign(**{
+        "위반 유형": name,
+        "자료 기간": f"{filtered['date'].min()} ~ {filtered['date'].max()}",
+        "내려받은 시각": pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y-%m-%d %H:%M"),
+        "비고": EXPORT_NOTE,
+    })
     st.dataframe(
         view.style.map(lambda v: BADGE_ENOUGH if v == "표본 충분" else BADGE_REFERENCE, subset=["신뢰도"]),
         column_config={

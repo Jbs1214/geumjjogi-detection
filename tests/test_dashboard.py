@@ -1,15 +1,17 @@
 # 담당: 육주영
 """dashboard/app.py 테스트. 실행: python -m unittest discover -s tests -t . -v"""
+import io
 import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from unittest import mock
 
 import pandas as pd
 import yaml
 from streamlit.testing.v1 import AppTest
 
-from dashboard.app import NOTICE, apply_filters, load_judged, pct, rate_views, top_slots
+from dashboard.app import EXPORT_NOTE, NOTICE,apply_filters, load_judged, pct, rate_views, top_slots
 
 
 def make_judged() -> pd.DataFrame:
@@ -71,11 +73,12 @@ class DataTest(unittest.TestCase):
         from eval.report import rate_table
 
         view, export = rate_views(rate_table(self.df, 30), "no_yield")
-        # 화면용은 막대 칸 때문에 0~100, 내려받기용은 0~1이고 구간 수준(95%)을 머리글에 적는다
+        # 화면용은 막대 칸 때문에 0~100, 내려받기용은 0~1이고 신뢰구간은 숫자 칸 둘(하한·상한)이다
         self.assertEqual(view["위반율"].max(), 100)
         self.assertEqual(export["위반율"].max(), 1)
-        self.assertIn("95% 신뢰구간", export.columns)
-        self.assertNotIn("신뢰구간", export.columns)
+        self.assertTrue(pd.api.types.is_float_dtype(export["95% 신뢰구간 하한"]))
+        self.assertTrue(pd.api.types.is_float_dtype(export["95% 신뢰구간 상한"]))
+        self.assertNotIn("95% 신뢰구간", export.columns)
 
     def test_empty_dir(self):
         with tempfile.TemporaryDirectory() as empty:
@@ -93,6 +96,20 @@ class AppSmokeTest(unittest.TestCase):
         self.assertEqual(at.warning[0].value, NOTICE)
         self.assertEqual([m.value for m in at.metric], ["83건", "33건", "40%"])
         self.assertEqual(len(at.dataframe), 1)
+
+    def test_download_has_context_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            make_judged().to_csv(Path(tmp) / "all.csv", index=False, encoding="utf-8-sig")
+            config = Path(tmp) / "eval.yaml"
+            config.write_text(yaml.safe_dump({"min_n_reference": 30}), encoding="utf-8")
+            with mock.patch("streamlit.download_button") as button:  # 버튼에 넘어가는 CSV를 잡는다
+                at = AppTest.from_function(run_app, args=(tmp, str(config)), default_timeout=30).run()
+        self.assertEqual(len(at.exception), 0)
+        csv = pd.read_csv(io.BytesIO(button.call_args.args[1]), encoding="utf-8-sig")
+        self.assertEqual(set(csv["위반 유형"]), {"보행자 미양보"})
+        self.assertEqual(set(csv["자료 기간"]), {"2026-10-31 ~ 2026-11-07"})
+        self.assertEqual(set(csv["비고"]), {EXPORT_NOTE})
+        self.assertIn("내려받은 시각", csv.columns)
 
     def run_with_red(self, kind):
         """make_judged에 적색 판정을 붙인다: 83건 중 미정지 20, 일시정지 30, 나머지 na."""
