@@ -178,6 +178,10 @@ class StopLevelTest(unittest.TestCase):
     def test_stop_past_line_before_crosswalk_is_minor(self):
         self.assertEqual(stage2(*drive(stop_x=315, stop_frames=20)), ("minor", ""))    # 앞 끝이 정지선을 15 px 넘음
 
+    def test_stop_before_line_then_creep_past_is_strict(self):
+        xs = list(range(400, 330, -10)) + [330] * 21 + [325, 320, 315] + [315] * 20 + list(range(305, 90, -10))
+        self.assertEqual(stage2(*move(xs)), ("strict", ""))   # 앞 끝 325에서 2초 → 슬금 310까지 → 2초 (기술서 2.3, 11.19)
+
     def test_short_stop_is_none(self):
         self.assertEqual(stage2(*drive(stop_x=330, stop_frames=5)), ("none", ""))      # 0.5초
 
