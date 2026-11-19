@@ -11,7 +11,8 @@ import pandas as pd
 import yaml
 from streamlit.testing.v1 import AppTest
 
-from dashboard.app import EXPORT_NOTE, NOTICE,apply_filters, load_judged, pct, rate_views, top_slots
+from dashboard.app import EXPORT_NOTE, NOTICE, SIGNUP_DONE, apply_filters, load_judged, pct, rate_views, top_slots
+from dashboard.auth import hash_password
 
 
 def make_judged() -> pd.DataFrame:
@@ -39,6 +40,12 @@ def run_app(judged_dir, config):
     from dashboard.app import main
 
     main(judged_dir, config)
+
+
+def run_app_with_login(config):
+    from dashboard.app import main
+
+    main(config=config, use_db=True)
 
 
 class DataTest(unittest.TestCase):
@@ -151,6 +158,110 @@ class AppSmokeTest(unittest.TestCase):
         self.assertEqual(len(at.exception), 0)
         self.assertEqual(at.warning[0].value, NOTICE)
         self.assertEqual(len(at.info), 1)
+
+
+class LoginTest(unittest.TestCase):
+    """MySQL 모드(use_db). dashboard.db 함수는 mock으로 바꿔 MySQL 없이 돈다."""
+
+    def setUp(self):
+        tmp = self.enterContext(tempfile.TemporaryDirectory())
+        make_judged().to_csv(Path(tmp) / "all.csv", index=False, encoding="utf-8-sig")
+        config = Path(tmp) / "eval.yaml"
+        config.write_text(yaml.safe_dump({"min_n_reference": 30}), encoding="utf-8")
+        names = ["get_user", "add_user", "pending_users", "approve_user", "fetch_events"]
+        self.db = self.enterContext(mock.patch.multiple("dashboard.db", **dict.fromkeys(names, mock.DEFAULT)))
+        self.db["fetch_events"].return_value = load_judged(tmp)
+        self.db["pending_users"].return_value = []
+        self.db["get_user"].return_value = None  # 가입된 이메일이 없다
+        self.at =AppTest.from_function(run_app_with_login, args=(str(config),), default_timeout=30).run()
+
+    def login(self, password="password-1", **changes):
+        self.db["get_user"].return_value = {
+            "id": 1, "email": "officer@example.go.kr", "password_hash": hash_password("password-1"),
+            "name": "홍길동", "agency": "예시경찰서", "role": "viewer", "status": "approved", **changes,
+        }
+        self.at.text_input(key="login-email").set_value("officer@example.go.kr")
+        self.at.text_input(key="login-pw").set_value(password)
+        self.at.button(key="login-submit").click().run()
+        self.assertEqual(len(self.at.exception), 0)
+
+    def fill_signup(self, **changes):
+        """가입 칸을 채우고(버튼은 누르지 않음) 화면의 작은 글자들을 돌려준다."""
+        values = {"email": "new@example.go.kr", "password": "password-1", "confirm": "password-1",
+                  "name": "김신청", "agency": "예시구청", **changes}
+        for key, value in values.items():
+            self.at.text_input(key=f"signup-{key}").set_value(value)
+        self.at.run()
+        self.assertEqual(len(self.at.exception), 0)
+        return [c.value for c in self.at.caption]
+
+    def test_dashboard_hidden_before_login(self):
+        self.assertEqual(len(self.at.exception), 0)
+        self.assertEqual(self.at.warning[0].value, NOTICE)  # 안내 문구는 로그인 전에도 보인다
+        self.assertEqual(len(self.at.metric) + len(self.at.dataframe), 0)
+        self.db["fetch_events"].assert_not_called()
+
+    def test_approved_user_sees_dashboard(self):
+        self.login()
+        self.assertEqual([m.value for m in self.at.metric], ["83건", "33건", "40%"])
+        chip = self.at.get("html")[0].proto.body  # 오른쪽 위 프로필 칩
+        self.assertIn('<div class="account-name">홍길동</div><div class="account-agency">예시경찰서</div>', chip)
+        self.assertNotIn("관리자", chip)
+        self.assertEqual(self.at.button(key="logout").label, "로그아웃")
+        self.assertFalse(any(e.label.startswith("가입 승인") for e in self.at.expander))  # 관리자 전용
+
+    def test_wrong_password_or_pending_user_blocked(self):
+        self.login(password="password-2")
+        self.assertEqual(self.at.error[0].value, "이메일 또는 비밀번호가 맞지 않습니다.")
+        self.login(status="pending")
+        self.assertIn("관리자 승인 대기 중입니다.", [w.value for w in self.at.warning])
+        self.assertEqual(len(self.at.metric), 0)
+
+    def test_admin_approves_signup(self):
+        self.db["pending_users"].return_value = [{
+            "id": 7, "email": "new@example.go.kr", "name": "김신청", "agency": "예시구청", "department": "교통과",
+            "job_position": "주무관", "phone": "",
+        }]
+        self.login(role="admin", name="<b>관리</b>")
+        chip = self.at.get("html")[0].proto.body
+        self.assertIn('&lt;b&gt;관리&lt;/b&gt;<span class="account-role">관리자</span>', chip)  # 이름은 태그로 나가지 않는다
+        self.assertIn("가입 승인 (대기 1명)", [e.label for e in self.at.expander])
+        self.at.button(key="approve-7").click().run()
+        self.db["approve_user"].assert_called_once_with(7)
+
+    def test_signup_checks_while_typing(self):
+        # 버튼을 누르기 전에 틀린 칸 아래에 이유가 뜬다
+        captions = self.fill_signup(email="abc", password="short", confirm="other", phone="전화")
+        for message in ["이메일 형식이 아닙니다.", "비밀번호는 8자 이상이어야 합니다.", "비밀번호 확인이 다릅니다.",
+                        "연락처는 숫자와 -만, 숫자 9~11자리로 적어 주세요."]:
+            self.assertIn(f":red[{message}]", captions)
+        self.assertFalse(any("red" in c for c in self.fill_signup(email="new@example.go.kr", password="password-1",
+                                                                 confirm="password-1", phone="010-1234-5678")))
+
+    def test_empty_required_field_flagged_only_after_submit(self):
+        self.assertNotIn(":red[필수 입력입니다.]", self.fill_signup(name=""))  # 아직 손대지 않은 칸
+        self.at.button(key="signup-submit").click().run()
+        self.assertIn(":red[필수 입력입니다.]", [c.value for c in self.at.caption])
+        self.db["add_user"].assert_not_called()
+
+    def test_signup_rejects_registered_email(self):
+        self.db["get_user"].return_value = {"id": 1}
+        self.assertIn(":red[이미 가입된 이메일입니다.]", self.fill_signup())
+        self.db["add_user"].return_value = False  # DB의 중복 불가 조건이 마지막으로 막는다
+        self.at.button(key="signup-submit").click().run()
+        self.assertEqual(len(self.at.success), 0)
+
+    def test_signup_is_request_only_and_returns_to_login(self):
+        self.db["add_user"].return_value = True
+        self.fill_signup()
+        self.at.button(key="signup-submit").click().run()
+        user, password = self.db["add_user"].call_args.args
+        self.assertEqual((user["email"], user["agency"], user["phone"], password),
+                         ("new@example.go.kr", "예시구청", "", "password-1"))
+        self.assertEqual(self.at.session_state["auth-tab"], "로그인")
+        self.assertEqual([s.value for s in self.at.success], [SIGNUP_DONE])
+        self.assertEqual(self.at.text_input(key="signup-email").value, "")  # 가입 칸은 비운다
+        self.assertEqual(len(self.at.metric), 0)  # 신청만으로는 대시보드가 열리지 않는다
 
 
 if __name__ == "__main__":

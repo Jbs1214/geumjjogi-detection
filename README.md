@@ -54,6 +54,25 @@ streamlit run dashboard/app.py                                                  
 
 단계 사이 CSV의 컬럼은 [`docs/csv_schema.md`](docs/csv_schema.md)에 있습니다. MVP(1단계)에서는 `traffic_light.color`를 건너뛰고 `features.build`의 `--signal`을 생략합니다.
 
+### 대시보드 로그인·MySQL (선택)
+
+레포 루트에 `.env`가 없으면 대시보드는 위처럼 `outputs/judged`의 CSV를 바로 읽습니다. `.env`에 아래 값이 있으면 로그인한 사람에게만 보여 주고 자료를 MySQL에서 읽습니다. 아이디는 이메일이고, 가입은 신청 후 관리자가 승인해야 로그인됩니다. `.env`와 DB 백업 파일(이름·이메일·연락처 포함)은 git·Drive·카카오톡에 올리지 않습니다.
+
+```
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=<MySQL 계정>
+DB_PASSWORD=<비밀번호>
+DB_NAME=<DB 이름>
+```
+
+```bash
+python -m dashboard.db init                    # users·events 표 만들기
+python -m dashboard.db admin                   # 첫 관리자 계정(비밀번호는 화면에 보이지 않게 입력)
+python -m dashboard.db import outputs/judged   # 판정 CSV를 MySQL에 넣기(같은 영상은 다시 넣음)
+streamlit run dashboard/app.py                 # 로그인 화면부터 뜬다
+```
+
 ## 폴더 구조
 
 | 폴더 | 내용 | 담당 |
