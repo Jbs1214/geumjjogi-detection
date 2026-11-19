@@ -30,30 +30,34 @@ class JudgePedTest(unittest.TestCase):
 
 
 class JudgeRedTest(unittest.TestCase):
-    """인자: 신호, 정지선 앞 정지 시간(초), 정지 기준(초), 우회전 전용 신호, 카메라 움직임."""
+    """인자: 신호, 정지 위치(stop_level), 못 정한 이유(stop_note), 우회전 전용 신호, 카메라 움직임."""
 
-    def test_red_and_stopped_long_enough(self):
-        self.assertEqual(judge_red("red", 1.0, 1.0, False, False), ("stopped", ""))
+    def test_red_and_stopped_in_strict_zone(self):
+        self.assertEqual(judge_red("red", "strict", "", False, False), ("stopped", ""))
 
-    def test_red_and_stop_too_short(self):
-        self.assertEqual(judge_red("red", 0.9, 1.0, False, False), ("not_stopped", ""))
-        self.assertEqual(judge_red("red", 0.0, 1.0, False, False), ("not_stopped", ""))
+    def test_red_and_stopped_only_in_normal_zone_is_minor(self):
+        self.assertEqual(judge_red("red", "minor", "", False, False), ("stopped_minor", ""))
+
+    def test_red_and_no_stop(self):
+        self.assertEqual(judge_red("red", "none", "", False, False), ("not_stopped", ""))
 
     def test_not_red_is_na_even_without_stop(self):
-        self.assertEqual(judge_red("not_red", 0.0, 1.0, False, False), ("na", ""))
+        self.assertEqual(judge_red("not_red", "none", "", False, False), ("na", ""))
 
     def test_unknown_or_empty_signal_is_excluded(self):
-        self.assertEqual(judge_red("unknown", 2.0, 1.0, False, False), ("exclude", "signal_unknown"))
-        self.assertEqual(judge_red(NAN, NAN, 1.0, False, False), ("exclude", "signal_unknown"))
+        self.assertEqual(judge_red("unknown", "strict", "", False, False), ("exclude", "signal_unknown"))
+        self.assertEqual(judge_red(NAN, NAN, NAN, False, False), ("exclude", "signal_unknown"))
 
-    def test_red_without_stop_time_is_excluded_not_violation(self):
-        self.assertEqual(judge_red("red", NAN, 1.0, False, False), ("exclude", "stopline_hidden"))
+    def test_red_without_stop_level_is_excluded_with_note(self):
+        self.assertEqual(judge_red("red", NAN, "zone_unseen", False, False), ("exclude", "zone_unseen"))
+        self.assertEqual(judge_red("red", NAN, "stopline_hidden", False, False), ("exclude", "stopline_hidden"))
+        self.assertEqual(judge_red("red", NAN, NAN, False, False), ("exclude", "stopline_hidden"))
 
     def test_right_turn_signal_site_is_excluded(self):
-        self.assertEqual(judge_red("red", 0.0, 1.0, True, False), ("exclude", "rturn_signal"))
+        self.assertEqual(judge_red("red", "none", "", True, False), ("exclude", "rturn_signal"))
 
     def test_camera_moved_is_excluded_first(self):
-        self.assertEqual(judge_red("red", 0.0, 1.0, True, True), ("exclude", "camera_moved"))
+        self.assertEqual(judge_red("red", "none", "", True, True), ("exclude", "camera_moved"))
 
 
 class CameraMovedTest(unittest.TestCase):
@@ -78,9 +82,10 @@ class JudgeFileTest(unittest.TestCase):
             "peds_at_entry": [1, 1, 0],
             "no_yield_at": ["near", "exit", ""],
             "signal_at_stopline": ["red", "red", "not_red"],
-            "stop_sec_before_line": [0.2, 3.0, 0.0],
+            "stop_level": ["none", "strict", ""],
+            "stop_note": ["", "", ""],
         })
-        site = {"site": "A", "camera_moved_s": [[100.0, 120.0]], "right_turn_signal": False, "stop_min_duration_s": 1.0}
+        site = {"site": "A", "camera_moved_s": [[100.0, 120.0]], "right_turn_signal": False}
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             features.to_csv(tmp / "A_20261031_0800.csv", index=False, encoding="utf-8-sig")

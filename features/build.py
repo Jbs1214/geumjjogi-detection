@@ -11,7 +11,10 @@
 (검출이 잠깐 빠진 순간 서 있던 보행자가 0명으로 세어지지 않게. 트랙 이어 붙이기와 같은 기준).
 entry_speed는 출구 진입 순간 속도(미터 좌표 speed_window_s 이동평균 후 차분, 참고값).
 2단계(--signal을 줄 때만 채운다, 기술서 2.3): signal_at_stopline은 정지선 통과 시각(t_stopline_s)의 빨간불 시간표 상태,
-stop_sec_before_line은 통과 전 정지선 앞 stopline_zone_m 안에서 stop_speed_mps 이하로 이어진 가장 긴 시간(이어 본 이벤트는 앞 트랙 경로 포함).
+stop_level은 차 앞 끝(박스 아래변 세 점 중 정지선 너머로 가장 나간 점)이 정지 구간(stop_zone_px) 안에서 멈춘 위치
+(strict 엄격 구간 / minor 보통 구간에서만 / none 정지 없음). 판정할 수 없으면 비우고 이유를 stop_note에 적는다.
+정지 = 앞 끝이 stop_min_duration_s 동안 max(stop_move_min_px, 박스 높이 × stop_move_ratio) 픽셀 이하로 움직임(속도는 쓰지 않음).
+엄격 구간 = 앞 끝이 정지선(stop_line_px)을 박스 높이 × stop_strict_margin_ratio 이하로 넘은 곳. 이어 본 이벤트는 앞 트랙 경로 포함.
 
 입력: outputs/events/<영상>.csv, outputs/tracks/<영상>.csv, configs/site_<영상>.yaml,
       outputs/signal/<영상>.csv (2단계, 정지선 통과 시각의 신호 상태 조회)
@@ -29,7 +32,7 @@ from tracking.events import exit_area, inside
 from tracking.homography import to_meters
 from tracking.track import load_homography
 
-NEW_COLUMNS = ["entry_speed", "peds_lost", "peds_at_entry", "no_yield_at", "signal_at_stopline", "stop_sec_before_line"]
+NEW_COLUMNS = ["entry_speed", "peds_lost", "peds_at_entry", "no_yield_at", "signal_at_stopline", "stop_level", "stop_note"]
 
 
 def crosswalks(site: dict) -> dict:
@@ -92,27 +95,63 @@ def signal_at(seg: pd.DataFrame, t: float) -> str:
     return hit.iloc[0] if len(hit) else ""
 
 
-def stop_sec_before_line(path: pd.DataFrame, t_stopline: float, line_m: np.ndarray, window: int,
-                         zone_m: float, stop_speed: float, min_dur: float) -> float:
-    """정지선 통과 전, 정지선 앞 zone_m 안에서 속도가 stop_speed 이하로 이어진 가장 긴 시간(초). 멈춘 적이 없으면 0.
-    행의 속도는 직전 행부터의 구간 속도라, 그 구간 길이(검출이 빠진 동안 포함)를 정지 시간으로 더한다.
-    잴 수 없으면 nan(→ stopline_hidden 제외): 통과 시각이 없음, 구간 안에 속도를 잴 행이 없음,
-    구간에서 검출이 min_dur보다 길게 빠졌고(그 사이 멈췄는지 모름) 보이는 정지가 min_dur에 못 미침."""
+def front_points(path: pd.DataFrame, line_px: list, exit_pt: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """행마다 차 앞 끝 (x, y)와 그 점이 정지선을 넘은 픽셀 거리(출구 쪽이 +). 앞 끝 = 박스 아래변의
+    왼쪽·가운데·오른쪽 점 중 정지선 너머(출구 쪽)로 가장 나간 점(기술서 2.3. 정지선에 가장 가까운 점으로 고르면
+    선을 넘은 뒤 뒤쪽 점이 골라진다). 정지선은 양 끝을 지나는 직선으로 본다."""
+    (ax, ay), (bx, by) = np.asarray(line_px, dtype=float)
+    norm = np.hypot(bx - ax, by - ay)
+
+    def signed(x, y):
+        return ((bx - ax) * (y - ay) - (by - ay) * (x - ax)) / norm
+
+    sign = 1.0 if signed(*exit_pt) >= 0 else -1.0
+    y = path["y2"].to_numpy(dtype=float)
+    xs = np.stack([path["x1"].to_numpy(dtype=float), ((path["x1"] + path["x2"]) / 2).to_numpy(dtype=float),
+                   path["x2"].to_numpy(dtype=float)], axis=1)
+    d = sign * signed(xs, y[:, None])
+    pick = d.argmax(axis=1)
+    rows = np.arange(len(path))
+    return np.stack([xs[rows, pick], y], axis=1), d[rows, pick]
+
+
+def stop_level_in_zone(path: pd.DataFrame, t_stopline: float, line_px: list, zone_px: list, exit_pt: np.ndarray,
+                       min_dur: float, move_min_px: float, move_ratio: float, margin_ratio: float) -> tuple[str, str]:
+    """(stop_level, stop_note). 앞 끝이 정지 구간 안에서 min_dur 동안 max(move_min_px, 박스 높이 × move_ratio) 이하로
+    움직였으면 정지(창의 처음·끝 모두 구간 안, 이동 = 창 시작점에서 가장 멀어진 거리, 박스 높이 = 창 안 중앙값).
+    정지 창 중 하나라도 앞 끝이 정지선을 박스 높이 × margin_ratio 이하로만 넘었으면 strict, 아니면 minor, 정지가 없으면 none.
+    판정할 수 없으면 ("", 사유): stopline_hidden = 통과 시각이 없음, 구간 안에 앞 끝이 잡힌 행이 없음,
+    구간에서 검출이 min_dur보다 길게 빠지고 보이는 정지가 없음(그 사이 멈췄는지 모름).
+    zone_unseen = 앞 끝이 처음 잡힐 때 이미 구간 안이고 정지가 없음(구간에 들어온 뒤를 다 보지 못함)."""
     if np.isnan(t_stopline):
-        return np.nan
-    (ax, ay), (bx, by) = line_m
-    dist = np.abs((bx - ax) * (path["by_m"] - ay) - (by - ay) * (path["bx_m"] - ax)) / np.hypot(bx - ax, by - ay)
-    speed, dt = speeds(path, window), path["t_s"].diff()
-    before = (path["t_s"] <= t_stopline).to_numpy()
-    near = (dist <= zone_m).to_numpy() & before
-    seen = near & speed.notna().to_numpy()
-    if not seen.any():
-        return np.nan
-    stopped = seen & (speed <= stop_speed).to_numpy()
-    run = (~stopped).cumsum()   # 정지가 끊길 때마다 번호가 바뀐다
-    longest = float(dt[stopped].groupby(run[stopped]).sum().max()) if stopped.any() else 0.0
-    unseen = before & (near | np.r_[False, near[:-1]]) & (dt > min_dur).to_numpy() & ~stopped
-    return np.nan if unseen.any() and longest < min_dur else longest
+        return "", "stopline_hidden"
+    path = path.sort_values("t_s")
+    front, over = front_points(path, line_px, exit_pt)
+    zone = inside(zone_px, front[:, 0], front[:, 1])
+    if not zone.any():
+        return "", "stopline_hidden"
+    t = path["t_s"].to_numpy(dtype=float)
+    height = (path["y2"] - path["y1"]).to_numpy(dtype=float)
+    level = "none"
+    for i in np.flatnonzero(zone):
+        j = int(np.searchsorted(t, t[i] + min_dur - 1e-9))   # 창 끝 = 시작에서 min_dur 뒤 첫 행
+        if j >= len(t) or not zone[j]:
+            continue
+        h = float(np.median(height[i:j + 1]))
+        moved = float(np.hypot(*(front[i:j + 1] - front[i]).T).max())
+        if moved > max(move_min_px, h * move_ratio):
+            continue
+        if over[i:j + 1].max() <= h * margin_ratio:
+            return "strict", ""
+        level = "minor"
+    if level != "none":
+        return level, ""
+    if zone[0]:
+        return "", "zone_unseen"
+    gap = np.diff(t) > min_dur
+    if (gap & (zone[:-1] | zone[1:])).any():
+        return "", "stopline_hidden"
+    return "none", ""
 
 
 def build_features(events: str, tracks: str, site: str, signal: str | None = None,
@@ -135,9 +174,11 @@ def build_features(events: str, tracks: str, site: str, signal: str | None = Non
     ends = peds.groupby("track_id").tail(1)
     links = ev["link_track_id"] if "link_track_id" in ev else pd.Series(np.nan, index=ev.index)  # 컬럼 추가 전 events도 읽음
     vehicles = dict(tuple(tr[tr["track_id"].isin(ev["track_id"]) | tr["track_id"].isin(links.dropna())].groupby("track_id")))
+    stage2 = bool(signal) and bool(s.get("stop_zone_px")) and bool(s.get("stop_line_px"))  # 정지 구간이 없는 영상은 정지 판정을 비움
     if signal:
         seg = pd.read_csv(signal, encoding="utf-8-sig")
-        line_m = to_meters(H, np.array(s["stop_line_px"], dtype=float))
+    if stage2:
+        exit_pt = np.array(polys["exit"], dtype=float).mean(axis=0)  # 정지선의 출구 쪽을 가리는 데만 씀
 
     rows = []
     for e, link in zip(ev.itertuples(), links):
@@ -152,15 +193,17 @@ def build_features(events: str, tracks: str, site: str, signal: str | None = Non
             if n:
                 names.append(name)
             lost += count_lost(ends, frame / fps, polys[name], polys_m[name], cfg["merge_gap_s"], s["occluded_edge_m"])
-        sig, stop = "", np.nan
+        sig, level, note = "", "", ""
         if signal:
             sig = signal_at(seg, e.t_stopline_s)
-            stop = stop_sec_before_line(path, e.t_stopline_s, line_m, window,
-                                        s["stopline_zone_m"], s["stop_speed_mps"], s["stop_min_duration_s"])
-        rows.append((speed_at(v, exit_frame, window), lost, at, ";".join(names), sig, stop))
+        if stage2:
+            level, note = stop_level_in_zone(path, e.t_stopline_s, s["stop_line_px"], s["stop_zone_px"], exit_pt,
+                                             s["stop_min_duration_s"], s["stop_move_min_px"], s["stop_move_ratio"],
+                                             s["stop_strict_margin_ratio"])
+        rows.append((speed_at(v, exit_frame, window), lost, at, ";".join(names), sig, level, note))
 
     out_df = pd.concat([ev, pd.DataFrame(rows, columns=NEW_COLUMNS, index=ev.index)], axis=1)
-    out_df = out_df.round({"entry_speed": 3, "stop_sec_before_line": 3})
+    out_df = out_df.round({"entry_speed": 3})
     out = Path(out_dir) / f"{Path(events).stem}.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(out, index=False, encoding="utf-8-sig")
@@ -169,7 +212,8 @@ def build_features(events: str, tracks: str, site: str, signal: str | None = Non
     if signal:
         red = out_df["signal_at_stopline"] == "red"
         print(f"정지선 통과 시각의 신호 {out_df['signal_at_stopline'].replace('', '없음').value_counts().to_dict()}, "
-              f"빨간불 중 정지 시간을 못 잰 것 {int((red & out_df['stop_sec_before_line'].isna()).sum())}건")
+              f"빨간불 중 정지 위치 {out_df.loc[red, 'stop_level'].replace('', '못 정함').value_counts().to_dict()}, "
+              f"못 정한 이유 {out_df.loc[red & (out_df['stop_note'] != ''), 'stop_note'].value_counts().to_dict()}")
     print(f"저장: {out}")
     return out
 

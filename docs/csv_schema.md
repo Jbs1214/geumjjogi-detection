@@ -62,8 +62,6 @@ events의 컬럼 전부 + 아래 컬럼. MVP에서는 시계열을 요약값으�
 | `stop_level` | - | 2단계 정지 위치 (`strict` 엄격 구간에서 정지 / `minor` 보통 구간에서만 정지 / `none` 정지 없음). 정지 = 구간 안에서 차 앞 끝이 1초 동안 max(`stop_move_min_px`, 박스 높이 × `stop_move_ratio`) 이하 이동(기술서 2.3). 판정할 수 없으면 비우고 사유를 `stop_note`에 적음 |
 | `stop_note` | - | `stop_level`이 빈 이유: `stopline_hidden`(`t_stopline_s`가 없음, 구간에서 검출이 빠짐), `zone_unseen`(앞 끝이 처음 잡힐 때 이미 정지 구간 안이고 정지도 없음). 판정했으면 비움 |
 
-> 11.18 변경(코드 반영 전): 지금 `features.build`는 `stop_level`·`stop_note` 대신 `stop_sec_before_line`(정지선 앞 `stopline_zone_m` 안에서 0.5 m/s 이하가 이어진 가장 긴 시간)을 쓴다. 기술서 11.2.
-
 ## 5. judged — `outputs/judged/<video>.csv` (육주영, `rules.rule`)
 
 features의 컬럼 전부 + 이벤트 로그 필드(기술서 3.3).
