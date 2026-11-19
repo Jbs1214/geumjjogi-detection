@@ -1,5 +1,5 @@
 # 담당: 김민영
-"""영상 한 장면에서 출구 횡단보도 네 모서리, 출구 판정 영역(선택), 경로가 지나는 다른 횡단보도(other_crosswalks_px),
+"""영상 한 장면에서 출구 횡단보도 네 모서리, 출구 판정 영역(선택), 경로가 지나는 다른 횡단보도(other_crosswalks_px), 줄무늬~연석 사이 차도(ped_extra_px),
 우회전 진입로 ROI, 정지선, 정지 구간, 차량 신호등을 클릭해 교차로 설정 파일을 만든다.
 다른 횡단보도는 화면에 보이는 부분만 다각형으로 찍는다(docs/judgment_criteria.md).
 출구 네 모서리는 실측 크기를 아는 직사각형(homography 기준)이라, 연석이 둥글어 사각형 밖으로 나온 블록은
@@ -44,6 +44,10 @@ STEPS = [
      "stripes only (no sidewalk), 3+ points > Enter > name in terminal. Done: Enter (0 points)",
      "출구 말고 우회전 차가 지나는 횡단보도(진입 쪽·대각선 등). 보이는 부분의 블록(줄무늬)만 감싸서(인도 제외) 3점 이상 → Enter → 터미널에 이름. "
      "다 찍었으면 점 없이 Enter, 하나도 없으면 s"),
+    ("ped_extra_px", None, True, "CURB GAP (pedestrians only)",
+     "road between stripe end and curb line. One crosswalk at a time (name on screen): 3+ points > Enter. No gap here: Enter (0 points)",
+     "줄무늬 끝 ~ 연석 선 사이 차도(보행자만 셈). 화면에 뜨는 횡단보도 이름(exit → 다른 횡단보도 순서)마다 하나씩: "
+     "3점 이상 → Enter. 그 횡단보도에 빈 공간이 없으면 점 없이 Enter(다음 이름으로). 횡단보도 폭에 맞추고 인도는 넣지 않는다. 줄무늬와 조금 겹쳐도 된다. 전부 없으면 s"),
     ("approach_roi_px", 4, False, "APPROACH (lane past stop line to turn)", "4 points around the right-turn path",
      "우회전 진입로 영역 4점 (우회전 차로부터 정지선을 지나 꺾기 시작하는 곳까지, 우회전 경로만)"),
     ("stop_line_px", 2, True, "STOP LINE", "2 ends on the crosswalk-side edge of the white line. No line: entry crosswalk edge",
@@ -55,10 +59,12 @@ STEPS = [
     ("signal_roi_px", 4, True, "TRAFFIC LIGHT (car, not pedestrian)", "4 points around the RED lamp only",
      "우회전 방향 차량 신호등의 빨간 램프만 감싸는 4점 (초록·노랑 램프와 배경 제외. 2단계, 보행자 신호등 아님, s로 건너뛰기)"),
 ]
-COLORS = {"corners_px": (0, 255, 255), "area_px": (0, 140, 255), "other_crosswalks_px": (255, 200, 0), "approach_roi_px": (0, 255, 0),
+COLORS = {"corners_px": (0, 255, 255), "area_px": (0, 140, 255), "other_crosswalks_px": (255, 200, 0),
+          "ped_extra_px": (255, 255, 0), "approach_roi_px": (0, 255, 0),
           "stop_line_px": (0, 0, 255), "stop_zone_px": (128, 0, 255), "signal_roi_px": (255, 0, 255)}
 # --only 에 쓰는 짧은 이름
-ONLY = {"crosswalk": "corners_px", "exit_area": "area_px", "others": "other_crosswalks_px", "approach": "approach_roi_px",
+ONLY = {"crosswalk": "corners_px", "exit_area": "area_px", "others": "other_crosswalks_px", "ped_extra": "ped_extra_px",
+        "approach": "approach_roi_px",
         "stop_line": "stop_line_px", "stop_zone": "stop_zone_px", "signal": "signal_roi_px"}
 CROSSWALK_KEYS = ("corners_px", "area_px")  # yaml에서 crosswalk 아래에 들어가는 키
 
@@ -86,7 +92,7 @@ class Video:
 
 
 def draw(view: np.ndarray, k: float, x0: float, y0: float, shown: dict, current: list,
-         steps: list, step: int, zoom_level: float = 1.0, t_sec: float = 0.0) -> np.ndarray:
+         steps: list, step: int, zoom_level: float = 1.0, t_sec: float = 0.0, now: str = "") -> np.ndarray:
     """view = 원본을 (x0, y0)부터 k배로 보여 주는 화면. 점은 원본 좌표 → 화면 좌표로 바꿔 그린다.
     shown = 이미 정한 영역(이번 실행에서 찍은 것 + --only 일 때 기존 값)."""
     img = view.copy()
@@ -96,7 +102,7 @@ def draw(view: np.ndarray, k: float, x0: float, y0: float, shown: dict, current:
         if isinstance(val, dict):  # other_crosswalks_px = {이름: 점들}
             layers += [(key, pts, True, name) for name, pts in val.items()]
         elif key != cur_key:
-            layers.append((key, val, len(val) > 2, None))
+            layers.append((key, val, len(val) > 2, "exit" if key == "corners_px" and val else None))
     if cur_key:
         layers.append((cur_key, current, len(current) == steps[step][1], None))
     for key, pts, closed, label in layers:
@@ -122,7 +128,7 @@ def draw(view: np.ndarray, k: float, x0: float, y0: float, shown: dict, current:
             status = "OK - press Enter" if len(current) == n else f"{len(current)}/{n} points"
         keys = "Enter: next | Right-click: undo | Esc: quit" + (" | s: skip" if skippable else "")
         nav = f"Wheel: zoom (x{zoom_level:.1f}) | Middle-drag: move | n/b: +/-{SEEK_SEC:.0f}s (t={t_sec:.0f}s)"
-        lines = [(f"STEP {step + 1}/{len(steps)}  {name}  [{status}]", 0.8, COLORS[cur_key]),
+        lines = [(f"STEP {step + 1}/{len(steps)}  {name}{'  >> ' + now if now else ''}  [{status}]", 0.8, COLORS[cur_key]),
                  (hint, 0.6, (255, 255, 255)), (keys, 0.6, (200, 200, 200)), (nav, 0.6, (200, 200, 200))]
         band = img[:12 + 28 * len(lines), :800]
         band[:] = (band * 0.4).astype(np.uint8)  # 밝은 도로에서도 글자가 보이게 어둡게 깐다
@@ -133,16 +139,17 @@ def draw(view: np.ndarray, k: float, x0: float, y0: float, shown: dict, current:
     return img
 
 
-def ask_name(polys: dict) -> str:
-    """다른 횡단보도 이름을 터미널에서 받는다. 빈 값이면 cw1, cw2 …"""
+def ask_name(polys: dict, gap: bool = False) -> str:
+    """다른 횡단보도 이름을 터미널에서 받는다. 빈 값이면 cw1, cw2 …
+    gap = 연석 사이 차도(ped_extra_px) 단계: 이름이 붙일 횡단보도 이름이라 exit도 받는다(빈 값이면 exit)."""
     while True:
-        default = f"cw{len(polys) + 1}"
+        default = "exit" if gap and "exit" not in polys else f"cw{len(polys) + 1}"
         try:
             name = input(f"  이 횡단보도 이름 (터미널에 입력, 그냥 Enter = {default}): ").strip() or default
         except EOFError:  # 입력을 받을 수 없는 터미널(다른 프로그램이 실행)이면 기본 이름. yaml에서 고친다
             print(f"  입력 불가 → {default}")
             name = default
-        if name not in polys and name != "exit":  # exit = 출구 횡단보도(판정 결과 이름)
+        if name not in polys and (gap or name != "exit"):  # exit = 출구 횡단보도(판정 결과 이름)
             return name
         print(f"  이미 쓰는 이름: {name}")
 
@@ -201,8 +208,13 @@ def collect(video: Video, start_sec: float = 0.0, steps: list = STEPS, existing:
             shown = {**(existing or {}), **done}
             if n is None:
                 shown[key] = polys  # 다시 찍을 때는 기존 다각형 대신 이번 것만 보여 준다
+            gap = key == "ped_extra_px"
+            if gap and "names" not in vs:  # 빈 공간은 횡단보도마다 하나씩: 이름은 화면이 정해 준다(exit → 다른 횡단보도)
+                others = done.get("other_crosswalks_px") or (existing or {}).get("other_crosswalks_px") or {}
+                vs["names"], vs["gi"] = ["exit", *others], 0
+            now = f"draw gap for: {vs['names'][vs['gi']]}  ({vs['gi'] + 1}/{len(vs['names'])})" if gap else ""
             cv2.imshow(win, draw(render(), k(), vs["x0"], vs["y0"], shown, current, steps, step,
-                                 vs["zoom"], vs["t"]))
+                                 vs["zoom"], vs["t"], now))
             pressed = cv2.waitKey(30) & 0xFF
             if pressed == 27:
                 return None
@@ -210,12 +222,28 @@ def collect(video: Video, start_sec: float = 0.0, steps: list = STEPS, existing:
                 delta = SEEK_SEC if pressed == ord("n") else -SEEK_SEC
                 vs["frame"], vs["t"] = video.frame_at(vs["t"] + delta)  # 카메라 고정이라 찍은 점은 그대로 둔다
                 continue
-            if pressed == 13 and n is None and len(current) >= 3:
+            if pressed == 13 and gap:
+                name = vs["names"][vs["gi"]]
+                if len(current) >= 3:
+                    polys[name] = list(current)
+                    print(f"  {name}: {len(current)}점")
+                elif current:
+                    continue  # 1~2점이면 다각형이 아니다. 더 찍거나 오른쪽 클릭으로 지운다
+                else:
+                    print(f"  {name}: 빈 공간 없음")
+                current = []
+                vs["gi"] += 1
+                if vs["gi"] < len(vs["names"]):
+                    continue
+                done[key] = polys  # 마지막 이름까지 끝났으면 단계 종료
+            elif pressed == 13 and n is None and len(current) >= 3:
                 name = ask_name(polys)
                 polys[name], current = list(current), []
                 print(f"  {name}: {len(polys[name])}점. 다음 횡단보도를 찍거나, 다 찍었으면 점 없이 Enter")
                 continue
-            if pressed == 13 and (len(current) >= 3 if n == POLY else len(current) == (n or 0)):
+            elif gap and pressed == ord("s"):
+                done[key], current = {}, []
+            elif pressed == 13 and (len(current) >= 3 if n == POLY else len(current) == (n or 0)):
                 done[key], current = (polys if n is None else list(current)), []
             elif pressed == ord("s") and skippable:
                 done[key], current = ({} if n is None else []), []

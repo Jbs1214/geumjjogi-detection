@@ -76,6 +76,34 @@ class PedsAtEntryTest(unittest.TestCase):
     def test_crosswalk_not_entered_is_ignored(self):
         self.assertEqual(run(track(104, "pedestrian", range(61), (450, 50)))["peds_at_entry"], 0)
 
+
+GAP = {"exit": [[0, 100], [100, 100], [100, 130], [0, 130]],      # 출구 줄무늬 아래 ~ 연석 선(y 130)
+       "diag": [[400, 100], [500, 100], [500, 130], [400, 130]]}
+
+
+class CurbGapTest(unittest.TestCase):
+    """ped_extra_px: 줄무늬~연석 사이 차도의 보행자도 그 횡단보도로 센다(기술서 2.2, 11.19)."""
+
+    def test_ped_in_gap_at_exit_entry_is_counted(self):
+        r = run(track(111, "pedestrian", range(61), (50, 115)), site={**SITE, "ped_extra_px": GAP})
+        self.assertEqual((r["peds_at_entry"], r["no_yield_at"]), (1, "exit"))
+
+    def test_without_gap_setting_ped_in_gap_is_not_counted(self):
+        self.assertEqual(run(track(111, "pedestrian", range(61), (50, 115)))["peds_at_entry"], 0)
+
+    def test_ped_on_sidewalk_beyond_curb_is_not_counted(self):
+        r = run(track(112, "pedestrian", range(61), (50, 140)), site={**SITE, "ped_extra_px": GAP})
+        self.assertEqual(r["peds_at_entry"], 0)
+
+    def test_gap_of_crosswalk_not_entered_is_ignored(self):
+        r = run(track(113, "pedestrian", range(61), (450, 115)), site={**SITE, "ped_extra_px": GAP})
+        self.assertEqual(r["peds_at_entry"], 0)
+
+    def test_ped_where_gap_overlaps_stripes_counted_once(self):
+        overlap = {"exit": [[0, 90], [100, 90], [100, 130], [0, 130]]}
+        r = run(track(114, "pedestrian", range(61), (50, 95)), site={**SITE, "ped_extra_px": overlap})
+        self.assertEqual(r["peds_at_entry"], 1)
+
     def test_one_missing_frame_is_interpolated(self):
         frames = [f for f in range(61) if f != 25]                           # 출구 진입 순간만 검출 빠짐
         self.assertEqual(run(track(105, "pedestrian", frames, (50, 20)))["peds_at_entry"], 1)
