@@ -208,7 +208,8 @@ class LoginTest(unittest.TestCase):
         self.assertIn('<div class="account-name">홍길동</div><div class="account-agency">예시경찰서</div>', chip)
         self.assertNotIn("관리자", chip)
         self.assertEqual(self.at.button(key="logout").label, "로그아웃")
-        self.assertFalse(any(e.label.startswith("가입 승인") for e in self.at.expander))  # 관리자 전용
+        self.assertFalse(any(b.key == "view-toggle" for b in self.at.button))  # 가입 승인 관리는 관리자 전용
+        self.db["pending_users"].assert_not_called()
 
     def test_wrong_password_or_pending_user_blocked(self):
         self.login(password="password-2")
@@ -220,23 +221,31 @@ class LoginTest(unittest.TestCase):
     def test_admin_approves_signup(self):
         self.db["pending_users"].return_value = [{
             "id": 7, "email": "new@example.go.kr", "name": "김신청", "agency": "예시구청", "department": "교통과",
-            "job_position": "주무관", "phone": "",
+            "job_position": "주무관", "phone": "01011112222",
         }]
         self.login(role="admin", name="<b>관리</b>")
         chip = self.at.get("html")[0].proto.body
         self.assertIn('&lt;b&gt;관리&lt;/b&gt;<span class="account-role">관리자</span>', chip)  # 이름은 태그로 나가지 않는다
-        self.assertIn("가입 승인 (대기 1명)", [e.label for e in self.at.expander])
+        self.assertEqual(len(self.at.metric), 3)  # 관리자도 로그인하면 대시보드부터 본다
+        self.assertEqual(self.at.button(key="view-toggle").label, "가입 승인 관리 (1)")
+        self.at.button(key="view-toggle").click().run()
+        # 별도 페이지: 대시보드 대신 신청자 정보 표. 휴대폰 번호는 - 를 넣어 보여 준다
+        self.assertEqual(len(self.at.metric), 0)
+        self.assertEqual([t.value for t in self.at.text],
+                         ["김신청", "new@example.go.kr", "예시구청", "교통과", "주무관", "010-1111-2222"])
         self.at.button(key="approve-7").click().run()
         self.db["approve_user"].assert_called_once_with(7)
+        self.at.button(key="view-toggle").click().run()
+        self.assertEqual(len(self.at.metric), 3)  # 대시보드로 돌아온다
 
     def test_signup_checks_while_typing(self):
         # 버튼을 누르기 전에 틀린 칸 아래에 이유가 뜬다
-        captions = self.fill_signup(email="abc", password="short", confirm="other", phone="전화")
+        captions = self.fill_signup(email="abc", password="short", confirm="other", phone="010-1111-2222")
         for message in ["이메일 형식이 아닙니다.", "비밀번호는 8자 이상이어야 합니다.", "비밀번호 확인이 다릅니다.",
-                        "연락처는 숫자와 -만, 숫자 9~11자리로 적어 주세요."]:
+                        "휴대폰 번호는 - 없이 숫자만 적어 주세요(예: 01011112222)."]:
             self.assertIn(f":red[{message}]", captions)
         self.assertFalse(any("red" in c for c in self.fill_signup(email="new@example.go.kr", password="password-1",
-                                                                 confirm="password-1", phone="010-1234-5678")))
+                                                                 confirm="password-1", phone="01011112222")))
 
     def test_empty_required_field_flagged_only_after_submit(self):
         self.assertNotIn(":red[필수 입력입니다.]", self.fill_signup(name=""))  # 아직 손대지 않은 칸

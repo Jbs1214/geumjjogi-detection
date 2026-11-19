@@ -9,7 +9,7 @@ PASSWORD_MIN = 8  # 가입 때 받는 비밀번호 최소 길이
 SCRYPT = {"n": 2**14, "r": 8, "p": 1}
 REQUIRED_FIELDS = ("email", "name", "agency")
 EMAIL_PATTERN = r"[^@\s]+@[^@\s]+\.[^@\s]+"
-PHONE_DIGITS = (9, 11)  # 연락처 숫자 자릿수 범위
+PHONE_PATTERN = r"01\d{8,9}"  # 휴대폰 번호: 숫자만(01011112222)
 
 
 def signup_errors(user: dict, password: str, confirm: str) -> dict[str, str]:
@@ -23,10 +23,15 @@ def signup_errors(user: dict, password: str, confirm: str) -> dict[str, str]:
         errors["password"] = f"비밀번호는 {PASSWORD_MIN}자 이상이어야 합니다."
     if confirm != password:
         errors["confirm"] = "비밀번호 확인이 다릅니다."
-    phone, (low, high) = user["phone"], PHONE_DIGITS
-    if phone and not (re.fullmatch(r"[0-9-]+", phone) and low <= len(phone.replace("-", "")) <= high):
-        errors["phone"] = f"연락처는 숫자와 -만, 숫자 {low}~{high}자리로 적어 주세요."
+    if user["phone"] and not re.fullmatch(PHONE_PATTERN, user["phone"]):
+        errors["phone"] = "휴대폰 번호는 - 없이 숫자만 적어 주세요(예: 01011112222)."
     return errors
+
+
+def format_phone(phone: str) -> str:
+    """01011112222 -> 010-1111-2222 (관리자 화면 표시용). 숫자 10~11자리가 아니면 그대로 돌려준다."""
+    parts = re.fullmatch(r"(\d{3})(\d{3,4})(\d{4})", phone)
+    return "-".join(parts.groups()) if parts else phone
 
 
 def hash_password(password: str) -> str:

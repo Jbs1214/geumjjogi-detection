@@ -6,7 +6,7 @@
 단속 우선 검토 시간대 TOP 3(표본 충분, 위반 의심 1건 이상)와 클립 보기, 현재 필터의 표를 CSV로 내려받기.
 "위반 의심 통계이며 실제 단속은 별도 확인이 필요하다" 문구를 항상 표시한다.
 위반 유형 "전체"는 두 유형을 나란히 보여 주고 위반율을 하나로 합치지 않는다(분모가 다르다).
-레포 루트 .env에 DB 접속 값이 있으면(dashboard/db.py) 로그인한 사람에게만 보여 주고 자료를 MySQL에서 읽는다. 가입은 신청 후 관리자 승인.
+레포 루트 .env에 DB 접속 값이 있으면(dashboard/db.py) 로그인한 사람에게만 보여 주고 자료를 MySQL에서 읽는다. 가입은 신청 후 관리자 승인(관리자 전용 가입 승인 관리 페이지).
 """
 import sys
 from datetime import date
@@ -20,7 +20,7 @@ import streamlit as st
 import yaml
 
 from dashboard import db
-from dashboard.auth import PASSWORD_MIN, signup_errors, verify_password
+from dashboard.auth import PASSWORD_MIN, format_phone, signup_errors, verify_password
 from eval.report import rate_table, wilson_ci
 
 NOTICE = "위반 의심 통계이며 실제 단속은 별도 확인이 필요하다"
@@ -62,8 +62,12 @@ SIGNUP_INPUTS = {  # 가입 화면의 칸(위에서 아래 순서): st.text_inpu
     "agency": {"label": "소속 기관 *"},
     "department": {"label": "부서"},
     "job_position": {"label": "직급"},
-    "phone": {"label": "연락처", "type": "phone", "placeholder": "010-1234-5678"},
+    "phone": {"label": "휴대폰 번호 (- 없이 숫자만)", "type": "phone", "placeholder": "01011112222"},
 }
+APPROVAL_COLUMNS = {  # 가입 승인 관리 페이지의 칸(users 표의 칸: 표시 이름)
+    "name": "이름", "email": "이메일", "agency": "소속 기관", "department": "부서", "job_position": "직급", "phone": "휴대폰 번호",
+}
+APPROVAL_WIDTHS = [2, 4, 3, 2, 2, 3, 1, 1]  # 위 여섯 칸 + 승인·거절 버튼
 SIGNUP_DONE = "가입 신청이 접수됐습니다. 관리자 승인 후 로그인할 수 있습니다."
 
 
@@ -239,33 +243,42 @@ def submit_signup() -> None:
     state["auth-notice"] = SIGNUP_DONE
 
 
-def account_bar(area) -> None:
-    """화면 오른쪽 위: 로그인한 사람의 이름·소속기관(프로필 칩)과 로그아웃."""
+def account_bar(area, pending: list[dict] | None) -> None:
+    """화면 오른쪽 위: 로그인한 사람의 이름·소속기관(프로필 칩)과 로그아웃. pending(승인 대기 목록)은 관리자일 때만 준다."""
     user = st.session_state["user"]
     name, agency = escape(user["name"]), escape(user["agency"])  # 가입자가 적은 글자라 태그로 나가지 않게
     role = '<span class="account-role">관리자</span>' if user["role"] == "admin" else ""
     with area.container(horizontal=True, horizontal_alignment="right", vertical_alignment="center"):
         st.html(ACCOUNT_CHIP.format(initial=escape(user["name"][:1]), name=name, role=role, agency=agency), width="content")
+        if pending is not None:  # 관리자: 대시보드 <-> 가입 승인 관리 페이지
+            approving = st.session_state.get("view") == "approval"
+            if st.button("대시보드" if approving else f"가입 승인 관리 ({len(pending)})", key="view-toggle"):
+                st.session_state["view"] = "dashboard" if approving else "approval"
+                st.rerun()
         if st.button("로그아웃", key="logout"):
+            st.session_state.pop("view", None)
             del st.session_state["user"]
             st.rerun()
 
 
-def approval_area() -> None:
-    """관리자에게만 보이는 가입 승인 영역."""
-    pending = db.pending_users()
-    with st.expander(f"가입 승인 (대기 {len(pending)}명)"):
-        for p in pending:
-            info, approve, reject = st.columns([8, 1, 1])
-            info.text(  # 신청자가 적은 글자라 서식 없이 그대로 보여 준다
-                f"{p['name']} ({p['email']}) · {p['agency']} {p['department']} {p['job_position']} · {p['phone']}"
-            )
-            if approve.button("승인", key=f"approve-{p['id']}"):
-                db.approve_user(p["id"])
-                st.rerun()
-            if reject.button("거절", key=f"reject-{p['id']}"):
-                db.reject_user(p["id"])
-                st.rerun()
+def approval_page(pending: list[dict]) -> None:
+    """관리자 전용 가입 승인 관리 페이지: 신청자가 적은 정보를 표로 보고 승인하거나 거절한다."""
+    st.subheader(f"가입 승인 관리 (대기 {len(pending)}명)")
+    if not pending:
+        st.info("승인을 기다리는 가입 신청이 없습니다.")
+        return
+    for column, label in zip(st.columns(APPROVAL_WIDTHS), APPROVAL_COLUMNS.values()):
+        column.markdown(f"**{label}**")
+    for p in pending:
+        *cells, approve, reject = st.columns(APPROVAL_WIDTHS, vertical_alignment="center")
+        for cell, name in zip(cells, APPROVAL_COLUMNS):  # 신청자가 적은 글자라 서식 없이 그대로 보여 준다
+            cell.text((format_phone(p[name]) if name == "phone" else p[name]) or "-")
+        if approve.button("승인", key=f"approve-{p['id']}"):
+            db.approve_user(p["id"])
+            st.rerun()
+        if reject.button("거절", key=f"reject-{p['id']}"):
+            db.reject_user(p["id"])
+            st.rerun()
 
 
 def main(judged_dir: str = "outputs/judged", config: str = "configs/eval.yaml", use_db: bool = False) -> None:
@@ -281,9 +294,11 @@ def main(judged_dir: str = "outputs/judged", config: str = "configs/eval.yaml", 
         if not logged_in:
             login_page()
             return
-        account_bar(account_area)
-        if st.session_state["user"]["role"] == "admin":
-            approval_area()
+        pending = db.pending_users() if st.session_state["user"]["role"] == "admin" else None
+        account_bar(account_area, pending)
+        if pending is not None and st.session_state.get("view") == "approval":
+            approval_page(pending)
+            return
         df = db.fetch_events()
     else:
         df = load_judged(judged_dir)
