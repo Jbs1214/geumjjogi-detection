@@ -98,6 +98,19 @@ class RenderTest(unittest.TestCase):
                 render(str(src), [], tracks, judged, SITE_CFG, EVAL_CFG, str(out))
         self.assertEqual(put_korean.call_args.args[1], "제외(카메라 이동)")
 
+    def test_label_starts_at_exit_entry(self):
+        # 글자는 출구 횡단보도 진입 시각(0.55초)부터: 12프레임(10fps) 중 6~11번 프레임에서만 그린다
+        tracks = pd.DataFrame({
+            "frame": range(N_FRAMES), "track_id": 7, "cls": "vehicle", "x1": 10, "y1": 60, "x2": 50, "y2": 100,
+        })
+        judged = pd.DataFrame({"track_id": [7], "t_enter_s": [0.55], "ped_result": ["yield"]})
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out = Path(tmp) / "src.mp4", Path(tmp) / "out.mp4"
+            write_video(src)
+            with mock.patch("eval.overlay.put_korean") as put_korean:
+                render(str(src), [], tracks, judged, SITE_CFG, EVAL_CFG, str(out))
+        self.assertEqual(put_korean.call_count, 6)
+
     def test_output_matches_input_length_and_size(self):
         tracks = pd.DataFrame({
             "frame": range(N_FRAMES),
