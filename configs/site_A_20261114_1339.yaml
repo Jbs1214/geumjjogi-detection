@@ -27,7 +27,7 @@ other_crosswalks_px:
   - [1066, 1079]
   - [573, 1050]
 camera_moved_s:
-- [0.0, 117.0]
+- [0.0, 104.0]
 approach_roi_px:
 - [1835, 858]
 - [1828, 910]
