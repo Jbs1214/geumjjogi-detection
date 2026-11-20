@@ -24,7 +24,7 @@ from tracking.events import exit_area
 
 # 표시용 값 (판정 기준이 아님)
 TRAIL_S = 2.0        # 궤적을 그리는 길이
-LABEL_HOLD_S = 3.0   # 출구 횡단보도 진입 시각 앞뒤로 판정 글자를 보여 주는 시간
+LABEL_HOLD_S = 5.0   # 출구 횡단보도 진입 시각부터 판정 글자를 보여 주는 시간
 CROSSWALK_COLOR = (0, 255, 255)
 CLS_COLORS = {"vehicle": (255, 160, 0), "motorcycle": (255, 0, 255), "pedestrian": (0, 255, 0)}
 RESULT_COLORS = {"no_yield": (0, 0, 255), "yield": (0, 200, 0), "exclude": (160, 160, 160)}
@@ -103,7 +103,7 @@ def render(
         cv2.polylines(frame, crosswalks, True, CROSSWALK_COLOR, 2)
 
         t = f / fps
-        active = judged[(judged["t_enter_s"] - t).abs() <= LABEL_HOLD_S]
+        active = judged[(t - judged["t_enter_s"]).between(0, LABEL_HOLD_S)]
         reds = active["red_result"] if "red_result" in active else [None] * len(active)  # 2단계 판정 전 judged에는 없다
         reasons = active["ped_exclude_reason"] if "ped_exclude_reason" in active else [None] * len(active)
         label_by_track = {
