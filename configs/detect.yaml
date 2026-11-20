@@ -4,6 +4,7 @@ conf: 0.25               # 검출 시험용. 추적(tracking.track)에는 넘기
 imgsz: 1920              # 영상 원본 폭. 640에서는 먼 횡단보도 위 보행자가 거의 안 잡힘 (docs/experiments.md 261111)
 tracker: bytetrack.yaml  # ultralytics 내장
 driver_overlap_min: 0.5  # 오토바이 박스와 겹치는 비율이 이 값 이상인 person은 운전자로 보고 보행자에서 뺌 (기술서 1.1, 초기값)
+ped_conf_min: 0.25       # 1단계 보행자 집계(features.build)에서 신뢰도가 이 값 미만인 박스는 없는 것으로 봄. 추적에는 안 씀(위 conf 주석). 오검출 최소화 (기술서 11.20)
 
 # 트랙 후처리·속도 (기술서 1.1·1.2, 초기값)
 min_track_s: 1.0         # 이보다 짧은 트랙은 지움

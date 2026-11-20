@@ -24,18 +24,18 @@ SITE = {"crosswalk": {"corners_px": EXIT, "area_px": [], "width_m": 10.0, "lengt
         "stop_min_duration_s": 1.0, "stop_move_min_px": 5, "stop_move_ratio": 0.1, "stop_strict_margin_ratio": 0.2}
 SIGNAL = pd.DataFrame({"video": "A_20261031_0800", "t_start_s": [0.0, 1.0, 5.0], "t_end_s": [1.0, 5.0, 6.0],
                        "state": ["not_red", "red", "unknown"]})
-CONFIG = {"merge_gap_s": 2.0, "speed_window_s": 0.5}
+CONFIG = {"merge_gap_s": 2.0, "speed_window_s": 0.5, "ped_conf_min": 0.25}
 H = compute_homography(EXIT, 10.0, 10.0)
 
 
-def track(tid, cls, frames, points):
-    """frames마다 하단 중심 (x, y) 픽셀. points가 (x, y) 하나면 그 자리에 서 있다."""
+def track(tid, cls, frames, points, conf=0.9):
+    """frames마다 하단 중심 (x, y) 픽셀. points가 (x, y) 하나면 그 자리에 서 있다. conf는 숫자 하나 또는 프레임별 목록."""
     frames = list(frames)
     pts = np.array(points if isinstance(points, list) else [points] * len(frames), dtype=float)
     m = to_meters(H, pts)
     return pd.DataFrame({
         "frame": frames, "t_s": np.array(frames) / FPS, "track_id": tid, "cls": cls,
-        "coco_cls": "car" if cls == "vehicle" else "person", "conf": 0.9,
+        "coco_cls": "car" if cls == "vehicle" else "person", "conf": conf,
         "x1": pts[:, 0] - 5, "y1": pts[:, 1] - 30, "x2": pts[:, 0] + 5, "y2": pts[:, 1], "bx_m": m[:, 0], "by_m": m[:, 1],
     })
 
@@ -75,6 +75,26 @@ class PedsAtEntryTest(unittest.TestCase):
 
     def test_crosswalk_not_entered_is_ignored(self):
         self.assertEqual(run(track(104, "pedestrian", range(61), (450, 50)))["peds_at_entry"], 0)
+
+
+class PedConfTest(unittest.TestCase):
+    """ped_conf_min: 신뢰도가 낮은 보행자 박스는 세지 않는다(기술서 11.20)."""
+
+    def test_low_confidence_ped_is_not_counted(self):
+        self.assertEqual(run(track(121, "pedestrian", range(61), (50, 80), conf=0.11))["peds_at_entry"], 0)
+
+    def test_confidence_exactly_at_minimum_is_counted(self):
+        self.assertEqual(run(track(122, "pedestrian", range(61), (50, 80), conf=0.25))["peds_at_entry"], 1)
+
+    def test_occluded_box_stretched_into_crosswalk_is_not_counted(self):
+        """경계 밖(y 107)에 서 있던 사람이 출구 진입 프레임(25)에만 가려져 박스 아래끝이 안(y 97)으로 늘어난 경우(1450 트랙 6071)."""
+        points = [(50, 97) if f == 25 else (50, 107) for f in range(61)]
+        conf = [0.11 if f == 25 else 0.6 for f in range(61)]
+        self.assertEqual(run(track(123, "pedestrian", range(61), points, conf=conf))["peds_at_entry"], 0)
+
+    def test_short_occlusion_inside_crosswalk_is_interpolated(self):
+        conf = [0.11 if 23 <= f <= 27 else 0.9 for f in range(61)]
+        self.assertEqual(run(track(124, "pedestrian", range(61), (50, 80), conf=conf))["peds_at_entry"], 1)
 
 
 GAP = {"exit": [[0, 100], [100, 100], [100, 130], [0, 130]],      # 출구 줄무늬 아래 ~ 연석 선(y 130)
