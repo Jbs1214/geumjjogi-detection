@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
-from eval.overlay import RESULT_COLORS, render, result_label
+from eval.overlay import RESULT_COLORS, relevant_tracks, render, result_label
 
 EVAL_CFG = {"blur_margin": 0.15, "blur_kernel_frac": 0.5, "blur_plate_frac": 0.4}
 SITE_CFG = {
@@ -66,6 +66,26 @@ class ResultLabelTest(unittest.TestCase):
         for reason in (None, float("nan"), "", "something_new"):
             self.assertEqual(result_label("exclude", None, reason), ("제외", RESULT_COLORS["exclude"]))
         self.assertEqual(result_label("yield", None, "camera_moved"), ("양보", RESULT_COLORS["yield"]))
+
+
+class RelevantTracksTest(unittest.TestCase):
+    def test_keeps_event_vehicles_and_peds_on_crosswalk(self):
+        # 출구 횡단보도는 x 20~140, y 60~100. 보행자는 박스 하단 중심으로 본다
+        tracks = pd.DataFrame(
+            [
+                (0, 1, "vehicle", 0, 0, 10, 10),          # 이벤트 차량
+                (0, 2, "vehicle", 0, 0, 10, 10),          # 이어 본 앞 트랙
+                (0, 3, "vehicle", 30, 60, 60, 90),        # 이벤트 아닌 차량(횡단보도 위여도 뺀다)
+                (0, 4, "pedestrian", 40, 50, 50, 80),     # 횡단보도 위 보행자
+                (0, 5, "pedestrian", 150, 0, 158, 20),    # 횡단보도 밖(현수막 속 사람 등)
+                (1, 5, "pedestrian", 8, 10, 12, 30),      # 같은 트랙이 다른 횡단보도(near)에 들어온 프레임
+                (0, 6, "motorcycle", 30, 60, 60, 90),     # 이벤트 아닌 오토바이(세워 둔 자전거 등)
+            ],
+            columns=["frame", "track_id", "cls", "x1", "y1", "x2", "y2"],
+        )
+        judged = pd.DataFrame({"track_id": [1], "link_track_id": [2.0], "t_enter_s": [0.0], "ped_result": ["yield"]})
+        kept = relevant_tracks(tracks, judged, SITE_CFG)
+        self.assertEqual(list(zip(kept["frame"], kept["track_id"])), [(0, 1), (0, 2), (0, 4), (1, 5)])
 
 
 class RenderTest(unittest.TestCase):

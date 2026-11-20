@@ -1,6 +1,7 @@
 # 담당: 육주영
 """분석 영상(mp4)을 만든다. 중간 발표(11.18) 시연용, 11.16까지.
 블러(eval/clips.py와 같은 규칙, configs/eval.yaml의 blur_*)를 먼저 적용한 뒤 박스·궤적·횡단보도·판정 결과를 그린다. 블러 전 프레임은 파일로 남기지 않는다.
+박스는 판정과 관련된 것만 그린다(기술서 8): 우회전 이벤트 차량과 경로상 횡단보도 위 보행자. 블러는 검출된 것 전부에 적용한다.
 블러용 박스는 tracks CSV(운전자 제외, conf 0.25)를 쓰지 않고, 원본 영상을 configs/detect.yaml의 model로
 configs/eval.yaml의 blur_conf 기준으로 다시 검출해 얻는다(운전자 포함).
 
@@ -20,7 +21,7 @@ import yaml
 from PIL import Image, ImageDraw, ImageFont
 
 from eval.blur import Box, blur_frame, detect_boxes, fill_gaps, print_progress
-from tracking.events import exit_area
+from tracking.events import exit_area, inside
 
 # 표시용 값 (판정 기준이 아님)
 TRAIL_S = 2.0        # 궤적을 그리는 길이
@@ -68,6 +69,21 @@ def result_label(ped_result: str, red_result, ped_reason=None) -> tuple[str, tup
     return f"{text} · {RED_TEXT[red_result]}", color
 
 
+def relevant_tracks(tracks: pd.DataFrame, judged: pd.DataFrame, site_cfg: dict) -> pd.DataFrame:
+    """판정과 관련된 행만 남긴다: 우회전 이벤트 차량(이어 본 앞 트랙 포함)과, 그 프레임에
+    경로상 횡단보도(ped_extra_px 포함) 위에 있는 보행자(박스 하단 중심, features/build.py가 세는 범위와 같다)."""
+    event_ids = set(judged["track_id"])
+    if "link_track_id" in judged:
+        event_ids |= set(judged["link_track_id"].dropna())
+    areas = [exit_area(site_cfg), *site_cfg.get("other_crosswalks_px", {}).values(),
+             *(site_cfg.get("ped_extra_px") or {}).values()]
+    keep = tracks["track_id"].isin(event_ids)
+    peds = tracks[tracks["cls"] == "pedestrian"]
+    for area in areas:
+        keep.loc[peds.index[inside(area, (peds["x1"] + peds["x2"]) / 2, peds["y2"])]] = True
+    return tracks[keep]
+
+
 def render(
     video: str,
     blur_boxes: list[list[Box]],
@@ -89,7 +105,7 @@ def render(
     # 출구 횡단보도(판정 영역: area_px, 없으면 corners_px) + 우회전 경로가 지나는 다른 횡단보도
     crosswalks = [exit_area(site_cfg), *site_cfg.get("other_crosswalks_px", {}).values()]
     crosswalks = [np.array(c, np.int32) for c in crosswalks]
-    rows_by_frame = {f: g for f, g in tracks.groupby("frame")}
+    rows_by_frame = {f: g for f, g in relevant_tracks(tracks, judged, site_cfg).groupby("frame")}
     trail_frames = int(TRAIL_S * fps)
     trails: dict[int, list[tuple[int, int, int]]] = {}  # track_id -> [(frame, x, y)]
 
