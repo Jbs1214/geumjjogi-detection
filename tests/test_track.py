@@ -1,12 +1,14 @@
 # 담당: 김민영
 """tracking/track.py 후처리 테스트 (가짜 트랙, 실제 영상·YOLO 없이). 실행: python -m unittest discover -s tests -t . -v"""
 import unittest
+from unittest import mock
 
 import numpy as np
 import pandas as pd
 
 from tracking.homography import compute_homography
-from tracking.track import COLUMNS, add_meters, drop_short, merge_tracks, remove_drivers, unify_class
+from tracking.track import (COLUMNS, add_meters, detect_and_track, drop_short, merge_tracks, remove_drivers,
+                            unify_class)
 
 FPS = 10.0
 
@@ -124,6 +126,21 @@ class DropShortTest(unittest.TestCase):
         merged = merge_tracks(df, 2.0, 1.5)
         self.assertEqual(ids(drop_short(merged, 1.0)), [1])   # 조각은 각각 1초 미만이지만 합치면 2초
         self.assertEqual(ids(drop_short(df, 1.0)), [])        # 먼저 지우면 둘 다 사라진다
+
+
+class DetectAndTrackArgsTest(unittest.TestCase):
+    def test_passes_nms_settings_and_no_conf(self):
+        # 겹친 박스 합치기 설정은 detect.yaml 값을 그대로 넘기고, conf는 넘기지 않는다(ByteTrack이 낮은 신뢰도 박스로 트랙을 잇는다)
+        cfg = {"model": "m.pt", "class_map": {"car": "vehicle"}, "tracker": "bytetrack.yaml", "imgsz": 1920,
+               "nms_agnostic": True, "nms_iou": 0.5}
+        with mock.patch("tracking.track.YOLO") as yolo, mock.patch("tracking.track.cv2.VideoCapture") as cap:
+            cap.return_value.get.return_value = 30.0
+            yolo.return_value.names = {0: "car"}
+            yolo.return_value.track.return_value = []
+            detect_and_track("v.mp4", cfg)
+        kwargs = yolo.return_value.track.call_args.kwargs
+        self.assertEqual((kwargs["agnostic_nms"], kwargs["iou"]), (True, 0.5))
+        self.assertNotIn("conf", kwargs)
 
 
 class UnifyClassTest(unittest.TestCase):
