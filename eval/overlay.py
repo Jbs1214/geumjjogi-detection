@@ -7,7 +7,7 @@ configs/eval.yaml의 blur_conf 기준으로 다시 검출해 얻는다(운전자
 입력: 원본 영상(--video), outputs/tracks/<영상>.csv, outputs/judged/<영상>.csv, configs/site_<영상>.yaml
 출력: outputs/overlay/<영상>.mp4
 
-tracks의 frame은 0부터 세는 프레임 번호로 본다. 판정 글자(미양보·양보·제외, 적색 판정이 있으면 뒤에 일시정지·미정지)는 Pillow로 한글을 그린다(글꼴: 맑은 고딕).
+tracks의 frame은 0부터 세는 프레임 번호로 본다. 판정 글자(미양보·양보·제외(이유), 적색 판정이 있으면 뒤에 일시정지·일시정지(경미)·미정지)는 Pillow로 한글을 그린다(글꼴: 맑은 고딕).
 """
 import argparse
 from functools import lru_cache
@@ -29,7 +29,9 @@ CROSSWALK_COLOR = (0, 255, 255)
 CLS_COLORS = {"vehicle": (255, 160, 0), "motorcycle": (255, 0, 255), "pedestrian": (0, 255, 0)}
 RESULT_COLORS = {"no_yield": (0, 0, 255), "yield": (0, 200, 0), "exclude": (160, 160, 160)}
 RESULT_TEXT = {"no_yield": "미양보", "yield": "양보", "exclude": "제외"}
-RED_TEXT = {"stopped": "일시정지", "not_stopped": "미정지"}  # 적색 판정은 판정 대상일 때만 글자를 붙인다(na·제외는 생략)
+REASON_TEXT = {"camera_moved": "카메라 이동", "occluded": "가림 의심", "not_right_turn": "우회전 아님"}  # ped_exclude_reason
+# 적색 판정은 판정 대상일 때만 글자를 붙인다(na·제외는 생략)
+RED_TEXT = {"stopped": "일시정지", "stopped_minor": "일시정지(경미)", "not_stopped": "미정지"}
 FONT_FILE = "malgun.ttf"  # Windows 맑은 고딕
 FONT_SIZE = 22
 
@@ -54,12 +56,16 @@ def put_korean(frame: np.ndarray, text: str, x: int, y: int, color: tuple) -> No
     region[mask[:region.shape[0], :region.shape[1]]] = color
 
 
-def result_label(ped_result: str, red_result) -> tuple[str, tuple]:
-    """이벤트의 판정 글자와 색. 적색 판정이 있으면 "양보 · 미정지"처럼 뒤에 붙이고, 미정지면 위반 의심 색으로 그린다."""
+def result_label(ped_result: str, red_result, ped_reason=None) -> tuple[str, tuple]:
+    """이벤트의 판정 글자와 색. 제외는 이유를 알면 "제외(카메라 이동)"처럼 괄호로 붙인다.
+    적색 판정이 있으면 "양보 · 미정지"처럼 뒤에 붙이고, 미정지면 위반 의심 색으로 그린다."""
+    text = RESULT_TEXT[ped_result]
+    if ped_result == "exclude" and ped_reason in REASON_TEXT:
+        text += f"({REASON_TEXT[ped_reason]})"
     if red_result not in RED_TEXT:
-        return RESULT_TEXT[ped_result], RESULT_COLORS[ped_result]
+        return text, RESULT_COLORS[ped_result]
     color = RESULT_COLORS["no_yield"] if red_result == "not_stopped" else RESULT_COLORS[ped_result]
-    return f"{RESULT_TEXT[ped_result]} · {RED_TEXT[red_result]}", color
+    return f"{text} · {RED_TEXT[red_result]}", color
 
 
 def render(
@@ -99,8 +105,10 @@ def render(
         t = f / fps
         active = judged[(judged["t_enter_s"] - t).abs() <= LABEL_HOLD_S]
         reds = active["red_result"] if "red_result" in active else [None] * len(active)  # 2단계 판정 전 judged에는 없다
+        reasons = active["ped_exclude_reason"] if "ped_exclude_reason" in active else [None] * len(active)
         label_by_track = {
-            track: result_label(ped, red) for track, ped, red in zip(active["track_id"], active["ped_result"], reds)
+            track: result_label(ped, red, reason)
+            for track, ped, red, reason in zip(active["track_id"], active["ped_result"], reds, reasons)
         }
 
         if f in rows_by_frame:

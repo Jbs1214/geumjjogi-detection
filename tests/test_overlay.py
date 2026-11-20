@@ -53,6 +53,20 @@ class ResultLabelTest(unittest.TestCase):
         self.assertEqual(result_label("yield", "not_stopped"), ("양보 · 미정지", RESULT_COLORS["no_yield"]))
         self.assertEqual(result_label("exclude", "not_stopped"), ("제외 · 미정지", RESULT_COLORS["no_yield"]))
 
+    def test_stopped_minor_is_shown_like_stopped(self):
+        # 경미 정지는 보통 모드에서 위반이 아니므로 일시정지와 같은 색
+        self.assertEqual(result_label("yield", "stopped_minor"), ("양보 · 일시정지(경미)", RESULT_COLORS["yield"]))
+
+    def test_exclude_reason_is_appended(self):
+        for reason, text in (("camera_moved", "카메라 이동"), ("occluded", "가림 의심"), ("not_right_turn", "우회전 아님")):
+            self.assertEqual(result_label("exclude", "exclude", reason), (f"제외({text})", RESULT_COLORS["exclude"]))
+
+    def test_exclude_without_known_reason_is_plain(self):
+        # 이유가 비었거나(None·nan) 모르는 값이면 "제외"만, 제외가 아니면 이유를 붙이지 않는다
+        for reason in (None, float("nan"), "", "something_new"):
+            self.assertEqual(result_label("exclude", None, reason), ("제외", RESULT_COLORS["exclude"]))
+        self.assertEqual(result_label("yield", None, "camera_moved"), ("양보", RESULT_COLORS["yield"]))
+
 
 class RenderTest(unittest.TestCase):
     def test_renders_with_red_result_column(self):
@@ -68,6 +82,21 @@ class RenderTest(unittest.TestCase):
             self.assertEqual(len(read_frames(out)), N_FRAMES)
         self.assertEqual(put_korean.call_args.args[1], "양보 · 미정지")
         self.assertEqual(put_korean.call_args.args[4], RESULT_COLORS["no_yield"])
+
+    def test_renders_exclude_reason_from_judged(self):
+        tracks = pd.DataFrame({
+            "frame": range(N_FRAMES), "track_id": 7, "cls": "vehicle", "x1": 10, "y1": 60, "x2": 50, "y2": 100,
+        })
+        judged = pd.DataFrame({
+            "track_id": [7], "t_enter_s": [0.6], "ped_result": ["exclude"], "ped_exclude_reason": ["camera_moved"],
+            "red_result": ["exclude"],
+        })
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out = Path(tmp) / "src.mp4", Path(tmp) / "out.mp4"
+            write_video(src)
+            with mock.patch("eval.overlay.put_korean") as put_korean:
+                render(str(src), [], tracks, judged, SITE_CFG, EVAL_CFG, str(out))
+        self.assertEqual(put_korean.call_args.args[1], "제외(카메라 이동)")
 
     def test_output_matches_input_length_and_size(self):
         tracks = pd.DataFrame({
