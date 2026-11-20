@@ -8,6 +8,7 @@
 끊긴 트랙을 이어 본 이벤트(events의 link_track_id)는 앞 트랙 경로까지 합쳐서 본다(경로상 횡단보도 전부, 기술서 11.1).
 차가 들어가지 않은 횡단보도는 세지 않는다. 점은 박스 하단 중심(픽셀), 출구 영역은 area_px(없으면 corners_px).
 보행자는 그 횡단보도의 ped_extra_px(줄무늬~연석 사이 차도)에 있어도 센다(차 진입 시각에는 쓰지 않음).
+보행자 박스는 신뢰도 ped_conf_min 이상만 쓴다(가려져 위치가 틀어진 저신뢰 박스가 경계 밖 사람을 안으로 넣지 않게, 기술서 11.20).
 그 프레임에 검출이 빠진 보행자 트랙은 앞뒤 행 간격이 merge_gap_s 이하이면 직선 보간한 위치로 센다
 (검출이 잠깐 빠진 순간 서 있던 보행자가 0명으로 세어지지 않게. 트랙 이어 붙이기와 같은 기준).
 entry_speed는 출구 진입 순간 속도(미터 좌표 speed_window_s 이동평균 후 차분, 참고값).
@@ -172,7 +173,7 @@ def build_features(events: str, tracks: str, site: str, signal: str | None = Non
     polys = crosswalks(s)
     extra = s.get("ped_extra_px") or {}  # 보행자만 세는 줄무늬~연석 사이 차도 {횡단보도 이름: 다각형}
     polys_m = {k: to_meters(H, np.array(p, dtype=float)).astype(np.float32) for k, p in polys.items()}
-    peds = tr[tr["cls"] == "pedestrian"]
+    peds = tr[(tr["cls"] == "pedestrian") & (tr["conf"] >= cfg["ped_conf_min"])]
     ends = peds.groupby("track_id").tail(1)
     links = ev["link_track_id"] if "link_track_id" in ev else pd.Series(np.nan, index=ev.index)  # 컬럼 추가 전 events도 읽음
     vehicles = dict(tuple(tr[tr["track_id"].isin(ev["track_id"]) | tr["track_id"].isin(links.dropna())].groupby("track_id")))
