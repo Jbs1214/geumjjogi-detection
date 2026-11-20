@@ -45,7 +45,8 @@ def detect_and_track(video: str, cfg: dict) -> pd.DataFrame:
     class_map = cfg["class_map"]
     class_ids = [i for i, name in model.names.items() if name in class_map]
     results = model.track(video, stream=True, persist=True, tracker=cfg["tracker"],
-                          imgsz=cfg["imgsz"], classes=class_ids, verbose=False)
+                          imgsz=cfg["imgsz"], classes=class_ids, verbose=False,
+                          agnostic_nms=cfg["nms_agnostic"], iou=cfg["nms_iou"])
     rows = []
     for frame, r in enumerate(results):  # 영상을 처음부터 한 장씩 읽으므로 0부터 세는 프레임 번호와 같다
         b = r.boxes
