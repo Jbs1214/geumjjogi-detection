@@ -39,7 +39,7 @@ python check_env.py
 원본 영상은 레포 밖(T5 SSD 등)에 두고 `--video`로 경로를 넘깁니다. 단계마다 결과 CSV가 `outputs/`에 남고 다음 단계가 읽습니다.
 
 ```bash
-python -m tracking.roi_tool     --video <영상> --out configs/site_<영상>.yaml --width-m <실측> --length-m <실측>  # 횡단보도·ROI 지정
+python -m tracking.roi_tool     --video <영상> --out configs/site_<영상>.yaml --width-m <실측> --length-m <실측>  # 횡단보도·ROI 지정 (실측은 선택. 없으면 미터 좌표·진입 속도만 빔)
 python -m tracking.track        --video <영상> --site configs/site_<영상>.yaml         # → outputs/tracks/
 python -m tracking.events       --tracks outputs/tracks/<영상>.csv --site configs/site_<영상>.yaml   # → outputs/events/
 python -m traffic_light.color          --video <영상> --site configs/site_<영상>.yaml         # 2단계 → outputs/signal/ (빨간불 시간표)

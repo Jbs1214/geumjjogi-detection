@@ -6,11 +6,11 @@
 연석 선을 그리면, 각 횡단보도의 양옆 테두리를 연석 선까지 곧게 늘여 빈 차도를 채우고 저장할 때 그 횡단보도 다각형에 합친다.
 횡단보도 영역끼리 겹친 자리(모퉁이 등)는 저장할 때 떼어 other_crosswalks_px.corner로 따로 둔다(기술서 11.1 "횡단보도 영역"). 화면에 보이는 부분만 찍는다(docs/judgment_criteria.md).
 횡단보도 네 모서리는 블록 두 줄 각각의 첫 블록과 끝 블록 바깥 모서리다(두 줄 블록이 하나씩 엇갈려 있으면 엇갈린 그대로).
-출구 네 모서리는 homography 기준이고,
+출구 네 모서리는 실측값을 넣을 때 homography 기준이 되고,
 판정은 출구 영역(crosswalk.area_px = 네 모서리 + 연석까지 채운 곳)으로 한다.
 진입·중간 횡단보도는 other_crosswalks_px의 near·diag로 저장한다.
 
-입력: 원본 영상(--video), 횡단보도 실측 치수(m, 나중에 채워도 된다)
+입력: 원본 영상(--video), 횡단보도 실측 치수(m, 선택. 없으면 미터 좌표·진입 속도만 비고 판정은 픽셀로 한다, 기술서 11.1)
 출력: configs/site_<영상>.yaml (형식은 configs/site_example.yaml. camera_moved_s·right_turn_signal은 영상을 보고 직접 고친다)
 
 화면은 튜토리얼처럼 단계(미션)를 하나씩 깬다: 시작 화면 → 미션마다 왼쪽 카드(할 일, 예시 그림, 다음에 찍을 점) →
@@ -840,12 +840,12 @@ def collect(video: Video, start_sec: float = 0.0, steps: list = STEPS, existing:
 
 
 def check_site(site: dict) -> None:
-    """모서리 4점 확인. 실측치가 있으면 homography까지 만들어 본다. 없으면(0) 경고만."""
+    """모서리 4점 확인. 실측치가 있으면 homography까지 만들어 본다. 없으면(0) 안내만(실측은 선택)."""
     cw = site["crosswalk"]
     if np.asarray(cw["corners_px"]).shape != (4, 2):
         raise ValueError(f"횡단보도 모서리는 4점이어야 한다: {cw['corners_px']}")
     if cw["width_m"] == 0 or cw["length_m"] == 0:
-        print("경고: 실측치(width_m, length_m) 미입력. yaml에서 채우기 전에는 track을 돌릴 수 없다.")
+        print("안내: 실측치(width_m, length_m) 없음. 미터 좌표·진입 속도(참고값)만 비우고 판정은 픽셀로 한다.")
     else:
         compute_homography(cw["corners_px"], cw["width_m"], cw["length_m"])  # 음수 등은 여기서 에러
 
@@ -970,8 +970,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="ROI·횡단보도 모서리 지정")
     parser.add_argument("--video", required=True)
     parser.add_argument("--out", required=True, help="예: configs/site_A_20261107_0800.yaml")
-    parser.add_argument("--width-m", type=float, help="횡단보도 좌상→우상 변 실측 길이 (생략하면 0, 나중에 채운다)")
-    parser.add_argument("--length-m", type=float, help="횡단보도 좌상→좌하 변 실측 길이 (생략하면 0, 나중에 채운다)")
+    parser.add_argument("--width-m", type=float, help="횡단보도 좌상→우상 변 실측 길이 (선택. 생략하면 0 = 미터 좌표·진입 속도 없음)")
+    parser.add_argument("--length-m", type=float, help="횡단보도 좌상→좌하 변 실측 길이 (선택. 생략하면 0)")
     parser.add_argument("--frame-sec", type=float, default=0.0, help="처음 보여 줄 장면의 시각(초)")
     parser.add_argument("--only", nargs="+", choices=list(ONLY),
                         help="이미 만든 --out 파일에서 이 영역만 다시 찍는다")

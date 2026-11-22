@@ -1,6 +1,6 @@
 # 담당: 김민영
 """features/build.py 테스트 (가짜 트랙, 실제 영상 없이). 실행: python -m unittest discover -s tests -t . -v
-화면 10 px = 1 m. 출구(0~100 px), near(200~300 px), diag(400~500 px). 차량은 y=50에서 프레임마다 10 px(10 m/s) 왼쪽으로 간다:
+화면 10 px = 1 m(진입 속도용 미터 좌표에만 씀). 사람 박스 높이 30 px. 출구(0~100 px), near(200~300 px), diag(400~500 px). 차량은 y=50에서 프레임마다 10 px(10 m/s) 왼쪽으로 간다:
 near 진입 frame 5, 출구 진입 frame 25 (t_enter_s 2.5). diag에는 들어가지 않는다."""
 import tempfile
 import unittest
@@ -18,7 +18,7 @@ EXIT = [[0, 0], [100, 0], [100, 100], [0, 100]]
 SITE = {"crosswalk": {"corners_px": EXIT, "area_px": [], "width_m": 10.0, "length_m": 10.0},
         "other_crosswalks_px": {"near": [[200, 0], [300, 0], [300, 100], [200, 100]],
                                 "diag": [[400, 0], [500, 0], [500, 100], [400, 100]]},
-        "occluded_edge_m": 1.0,
+        "occluded_edge_box": 0.6,                 # 가림 의심: 경계에서 사람 박스 높이(30 px) × 0.6 = 18 px보다 안쪽
         "stop_line_px": [[325, 0], [325, 100]],   # 세로선. 차는 오른쪽(x > 325)에서 와서 넘는다
         "stop_zone_px": [[300, 0], [355, 0], [355, 100], [300, 100]],   # 정지선 뒤 3 m(x 355) ~ near 시작선(x 300)
         "stop_min_duration_s": 1.0, "stop_move_min_px": 5, "stop_move_ratio": 0.1, "stop_strict_margin_ratio": 0.2}
@@ -154,11 +154,22 @@ class LinkedEventTest(unittest.TestCase):
 
 class PedsLostTest(unittest.TestCase):
     def test_ended_inside_center_is_lost(self):
-        r = run(track(107, "pedestrian", range(16), (50, 50)))                # t 1.5에 가운데(경계에서 5 m)에서 끝남
+        r = run(track(107, "pedestrian", range(16), (50, 50)))                # t 1.5에 가운데(경계에서 50 px)에서 끝남
         self.assertEqual((r["peds_lost"], r["peds_at_entry"]), (1, 0))
 
     def test_ended_near_edge_is_not_lost(self):
-        self.assertEqual(run(track(108, "pedestrian", range(16), (95, 50)))["peds_lost"], 0)   # 경계에서 0.5 m
+        self.assertEqual(run(track(108, "pedestrian", range(16), (95, 50)))["peds_lost"], 0)   # 경계에서 5 px
+
+    def test_edge_distance_scales_with_box_height(self):
+        # 경계에서 30 px 안쪽에서 끝남: 박스 높이 30이면 기준 18 px라 가림 의심, 높이 60이면 기준 36 px라 아님
+        short = track(110, "pedestrian", range(16), (70, 50))
+        tall = short.assign(y1=short["y2"] - 60)
+        self.assertEqual((run(short)["peds_lost"], run(tall)["peds_lost"]), (1, 0))
+
+    def test_runs_without_measurement(self):
+        # 실측값이 없는 site: 가림 의심은 픽셀로 그대로 센다
+        site = {**SITE, "crosswalk": {"corners_px": EXIT, "area_px": [], "width_m": 0.0, "length_m": 0.0}}
+        self.assertEqual(run(track(107, "pedestrian", range(16), (50, 50)), site=site)["peds_lost"], 1)
 
     def test_ended_too_early_is_not_lost(self):
         self.assertEqual(run(track(109, "pedestrian", range(4), (50, 50)))["peds_lost"], 0)    # 진입 2초 전보다 먼저
@@ -167,6 +178,10 @@ class PedsLostTest(unittest.TestCase):
 class OutputTest(unittest.TestCase):
     def test_entry_speed(self):
         self.assertAlmostEqual(run()["entry_speed"], 10.0, places=1)
+
+    def test_entry_speed_empty_without_meters(self):
+        # 실측값이 없으면 tracks의 미터 좌표가 비고, 진입 속도(참고값)도 비운다
+        self.assertEqual(run(car=CAR.assign(bx_m=np.nan, by_m=np.nan))["entry_speed"], "")
 
     def test_columns_and_stage2_empty(self):
         r = run()
