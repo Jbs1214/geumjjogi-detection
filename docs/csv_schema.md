@@ -57,7 +57,7 @@ events의 컬럼 전부 + 아래 컬럼. MVP에서는 시계열을 요약값으�
 | `entry_speed` | m/s | 진입 시점 속도 (참고값) |
 | `peds_lost` | 명 | 경로상 각 횡단보도 진입 직전 `merge_gap_s` 안에, 그 횡단보도 경계에서 `occluded_edge_m`보다 안쪽에서 끊긴 보행자 트랙 수의 합 (1 이상이고 `peds_at_entry`가 0이면 가림 의심 → 제외) |
 | `peds_at_entry` | 명 | 경로상 각 횡단보도(`crosswalk`=`exit`, `other_crosswalks_px`)에 차량이 진입한 순간 그 위에 있던 보행자 수의 합 (1 이상이면 미양보, 0이면 양보) |
-| `no_yield_at` | - | 진입 순간 보행자가 있던 횡단보도 이름 (`exit` 또는 `other_crosswalks_px`의 이름, 여러 개면 `;`로 구분, 없으면 비움) |
+| `no_yield_at` | - | 진입 순간 보행자가 있던 횡단보도 이름 (`exit` 또는 `other_crosswalks_px`의 이름, 여러 개면 `;`로 구분, 없으면 비움). `corner`는 횡단보도끼리 겹친 모퉁이 영역(기술서 11.1 "횡단보도 영역") |
 | `signal_at_stopline` | - | 정지선 통과 시각의 신호 상태 (`red` / `not_red` / `unknown`) |
 | `stop_level` | - | 2단계 정지 위치 (`strict` 엄격 구간에서 정지 / `minor` 보통 구간에서만 정지 / `none` 정지 없음). 정지 = 구간 안에서 차 앞 끝이 1초 동안 max(`stop_move_min_px`, 박스 높이 × `stop_move_ratio`) 이하 이동(기술서 2.3). 판정할 수 없으면 비우고 사유를 `stop_note`에 적음 |
 | `stop_note` | - | `stop_level`이 빈 이유: `stopline_hidden`(`t_stopline_s`가 없음, 구간에서 검출이 빠짐), `zone_unseen`(앞 끝이 처음 잡힐 때 이미 정지 구간 안이고 정지도 없음). 판정했으면 비움 |
