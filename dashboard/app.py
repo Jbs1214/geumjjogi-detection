@@ -7,6 +7,8 @@
 "위반 의심 통계이며 실제 단속은 별도 확인이 필요하다" 문구를 항상 표시한다.
 위반 유형 "전체"는 두 유형을 나란히 보여 주고 위반율을 하나로 합치지 않는다(분모가 다르다).
 레포 루트 .env에 DB 접속 값이 있으면(dashboard/db.py) 로그인한 사람에게만 보여 주고 자료를 MySQL에서 읽는다. 가입은 신청 후 관리자 승인(관리자 전용 가입 승인 관리 페이지).
+왼쪽 사이드바에서 "영상 분석" 화면(영상 등록 → 영역 설정 → 분석 → 리포트, dashboard/workflow.py)으로 바꾼다.
+위반 통계 화면의 "리포트 PDF 만들기"는 지금까지 쌓인 판정(현재 필터)으로 리포트를 만든다(dashboard/report_pdf.py).
 """
 import sys
 from datetime import date
@@ -19,11 +21,11 @@ import pandas as pd
 import streamlit as st
 import yaml
 
-from dashboard import db
+from dashboard import db, report_pdf, workflow
 from dashboard.auth import PASSWORD_MIN, format_phone, signup_errors, verify_password
 from eval.report import rate_table, wilson_ci
 
-NOTICE = "위반 의심 통계이며 실제 단속은 별도 확인이 필요하다"
+NOTICE = report_pdf.NOTICE
 EXPORT_NOTE = f"자동 판정 결과(사람 확인 전). {NOTICE}"
 TOP_N = 3
 KINDS = {  # 표시 이름: (판정 컬럼, 위반 아님, 위반 의심, 내려받기 파일 이름)
@@ -183,6 +185,17 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> Non
                         st.caption(f"파일 없음: {clip}")
 
 
+def report_button(filtered: pd.DataFrame, min_n: int) -> None:
+    """지금까지 쌓인 판정(현재 필터)으로 분석 리포트 PDF를 만들어 내려받게 한다."""
+    c1, c2 = st.columns([1, 3], vertical_alignment="center")
+    if c1.button("리포트 PDF 만들기", help="지금까지 쌓인 판정 중 현재 필터(교차로·기간)에 맞는 것으로 만듭니다"):
+        out = Path("outputs/reports") / f"report_{pd.Timestamp.now():%Y%m%d_%H%M%S}.pdf"
+        st.session_state["report-pdf"] = str(report_pdf.build_report(filtered, out, min_n, "우회전 위반 의심 누적 리포트"))
+    pdf = Path(st.session_state.get("report-pdf", ""))
+    if pdf.is_file():
+        c2.download_button(f"내려받기 ({pdf.name})", pdf.read_bytes(), pdf.name, "application/pdf")
+
+
 def login_page() -> None:
     """로그인 전 화면: 로그인과 회원가입(신청 후 관리자가 승인해야 로그인된다)."""
     _, middle, _ = st.columns(3)
@@ -299,6 +312,10 @@ def main(judged_dir: str = "outputs/judged", config: str = "configs/eval.yaml", 
         if pending is not None and st.session_state.get("view") == "approval":
             approval_page(pending)
             return
+    if st.sidebar.radio("화면", ["위반 통계", "영상 분석"], key="page") == "영상 분석":
+        workflow.analysis_page()
+        return
+    if use_db:
         df = db.fetch_events()
     else:
         df = load_judged(judged_dir)
@@ -322,6 +339,7 @@ def main(judged_dir: str = "outputs/judged", config: str = "configs/eval.yaml", 
     if filtered.empty:
         st.info("이 필터에 해당하는 이벤트가 없다.")
         return
+    report_button(filtered, min_n)
     names = list(KINDS) if kind == ALL_KINDS else [kind]
     for area, name in zip(st.columns(len(names)), names):  # "전체"는 좌우로 나란히
         with area:

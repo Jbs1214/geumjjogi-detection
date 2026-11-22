@@ -49,7 +49,7 @@ python -m eval.report           --judged outputs/judged --labels data/labels    
 python -m eval.clips            --judged outputs/judged/<영상>.csv --tracks outputs/tracks/<영상>.csv --video <영상>  # → outputs/clips/ (블러한 위반 의심 클립)
 python -m eval.overlay          --video <영상> --tracks outputs/tracks/<영상>.csv --judged outputs/judged/<영상>.csv --site configs/site_<영상>.yaml  # → outputs/overlay/ (블러한 분석 영상)
 python -m eval.blur_video       --video <영상>                                           # → outputs/blur/ (영상 전체 블러본, 판정 결과 없이 공유·발표용)
-streamlit run dashboard/app.py                                                          # 위반율 대시보드(읽기 전용)
+streamlit run dashboard/app.py                                                          # 위반율 대시보드 + 영상 분석 화면(사이드바)
 ```
 
 단계 사이 CSV의 컬럼은 [`docs/csv_schema.md`](docs/csv_schema.md)에 있습니다. MVP(1단계)에서는 `traffic_light.color`를 건너뛰고 `features.build`의 `--signal`을 생략합니다.
@@ -71,6 +71,27 @@ python -m dashboard.db init                    # users·events 표 만들기
 python -m dashboard.db admin                   # 첫 관리자 계정(비밀번호는 화면에 보이지 않게 입력)
 python -m dashboard.db import outputs/judged   # 판정 CSV를 MySQL에 넣기(같은 영상은 다시 넣음)
 streamlit run dashboard/app.py                 # 로그인 화면부터 뜬다
+```
+
+### 대시보드 영상 분석 화면
+
+`streamlit run dashboard/app.py` → 왼쪽 사이드바 **영상 분석**. 이 PC에서 쓴다(영역 지정 창이 대시보드를 띄운 PC 화면에 뜬다).
+
+1. **영상 등록**: 교차로 이름(공백·밑줄 없이), 우회전 방향(남→동·동→북·북→서·서→남), 촬영 날짜·시작 시각, 영상 파일 경로(탐색기에서 Shift+우클릭 → 경로로 복사). 여러 교차로·영상을 쌓아 둔다. 영상은 복사하지 않는다.
+2. **영역 설정**: 누르면 영역이 없는 영상마다 `tracking.roi_tool` 창이 차례로 뜬다. 마지막 화면에서 Enter로 저장하면 다음 영상으로 넘어간다(Esc = 건너뛰기). site 파일은 `configs/site_<영상 이름>.yaml`.
+3. **분석**: 영역을 설정한 영상을 백그라운드로 분석한다(track → events → 신호등 색(신호등 영역이 있을 때) → features → rules, DB 설정 시 events 표에 넣기). 화면을 닫아도 계속되고 한 번에 하나만 돈다. 진행 막대와 영상별 단계·진행률(검출·추적 %)·남은 시간 어림이 5초마다 갱신된다. 메일 주소를 적으면 끝난 뒤 리포트 PDF를 보낸다.
+4. **리포트**: 분석마다 리포트 PDF를 내려받는다. 위반 통계 화면의 **리포트 PDF 만들기**는 지금까지 쌓인 판정(현재 필터)으로 만든다.
+
+영상 이름은 `{교차로}-{방향 코드}_{YYYYMMDD}_{HHMM}`(S·E·N·W)으로 정해지고, 영상 목록·분석 작업(진행 상태·로그·리포트)은 `data/dashboard/`에 남는다(git에 올리지 않음). 리포트 PDF와 메일에는 통계만 담고 영상·클립은 넣지 않는다.
+
+메일을 보내려면 `.env`에 보내는 계정을 넣는다(없으면 메일만 빼고 나머지는 그대로 된다).
+
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465            # 465 = SSL, 587 등 = STARTTLS
+SMTP_USER=<보내는 계정>
+SMTP_PASSWORD=<앱 비밀번호>
+SMTP_FROM=<보내는 사람 주소, 생략하면 SMTP_USER>
 ```
 
 ## 폴더 구조

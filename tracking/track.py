@@ -53,6 +53,7 @@ def detect_and_track(video: str, cfg: dict) -> pd.DataFrame:
                           imgsz=cfg["imgsz"], classes=class_ids, verbose=False,
                           agnostic_nms=cfg["nms_agnostic"], iou=cfg["nms_iou"])
     rows = []
+    every = max(1, total // 100)  # 진행률 출력 간격(1%). 대시보드 분석 화면이 이 줄을 읽어 %를 보여 준다(dashboard/pipeline.py)
     for frame, r in enumerate(results):  # 영상을 처음부터 한 장씩 읽으므로 0부터 세는 프레임 번호와 같다
         b = r.boxes
         if b.id is not None:
@@ -60,8 +61,8 @@ def detect_and_track(video: str, cfg: dict) -> pd.DataFrame:
                                                      b.conf.tolist(), b.xyxy.tolist()):
                 coco = model.names[c]
                 rows.append((frame, frame / fps, tid, class_map[coco], coco, conf, x1, y1, x2, y2))
-        if frame % int(fps * 60) == 0:
-            print(f"  추적 {frame / fps / 60:.0f}분 / {total / fps / 60:.0f}분")
+        if frame % every == 0:
+            print(f"  추적 {frame}/{total}프레임 ({frame / max(total, 1):.0%})", flush=True)
     return pd.DataFrame(rows, columns=COLUMNS[:10])
 
 
