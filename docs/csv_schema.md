@@ -8,7 +8,7 @@
 - `video` = 영상 파일 이름에서 확장자를 뺀 것 (예: `A_20261031_0800`). 출력 파일 이름도 `<video>.csv`.
 - `cls` 값은 `vehicle` / `motorcycle` / `pedestrian` 셋뿐이다. 차(car)·버스·트럭은 모두 `vehicle`이다 (`configs/detect.yaml`의 `class_map`).
 - 시간은 영상 시작부터 초(`_s`), 거리는 m(`_m`), 속도는 m/s(`_mps`).
-- 미터 좌표: 원점 = 횡단보도 **좌상** 모서리, x축 = 좌상→우상(`width_m` 변), y축 = 좌상→좌하(`length_m` 변). 모서리 순서는 `configs/site_example.yaml`.
+- 미터 좌표(site에 실측값이 있을 때만, 없으면 빈 칸): 원점 = 횡단보도 **좌상** 모서리, x축 = 좌상→우상(`width_m` 변), y축 = 좌상→좌하(`length_m` 변). 모서리 순서는 `configs/site_example.yaml`.
 - 판정 값은 코드에서 `yield` / `no_yield`를 쓴다. 문서에서는 미양보 = 위반 의심으로 부른다(README 용어 대응표).
 
 ## 1. tracks — `outputs/tracks/<video>.csv` (김민영, `tracking.track`)
@@ -24,7 +24,7 @@
 | `coco_cls` | 검출 모델의 원래 클래스 (`car` / `bus` / `truck` / `motorcycle` / `person`. 미세조정 모델은 사람이 `pedestrian`). events에 트랙의 최빈값으로 옮기고, judged의 `vehicle_type`(차·버스·트럭·오토바이)으로 바꾼다 |
 | `conf` | 검출 신뢰도 |
 | `x1, y1, x2, y2` | 박스 (픽셀) |
-| `bx_m, by_m` | 박스 하단 중심점의 미터 좌표 |
+| `bx_m, by_m` | 박스 하단 중심점의 미터 좌표. 실측값(`crosswalk.width_m`·`length_m`)이 없으면 비움 |
 
 ## 2. events — `outputs/events/<video>.csv` (김민영, `tracking.events`)
 
@@ -54,8 +54,8 @@ events의 컬럼 전부 + 아래 컬럼. MVP에서는 시계열을 요약값으�
 
 | 컬럼 | 단위 | 뜻 |
 | --- | --- | --- |
-| `entry_speed` | m/s | 진입 시점 속도 (참고값) |
-| `peds_lost` | 명 | 경로상 각 횡단보도 진입 직전 `merge_gap_s` 안에, 그 횡단보도 경계에서 `occluded_edge_m`보다 안쪽에서 끊긴 보행자 트랙 수의 합 (1 이상이고 `peds_at_entry`가 0이면 가림 의심 → 제외) |
+| `entry_speed` | m/s | 진입 시점 속도 (참고값). 미터 좌표가 없으면 비움 |
+| `peds_lost` | 명 | 경로상 각 횡단보도 진입 직전 `merge_gap_s` 안에, 그 횡단보도 경계에서 사람 박스 높이 × `occluded_edge_box`(픽셀)보다 안쪽에서 끊긴 보행자 트랙 수의 합 (1 이상이고 `peds_at_entry`가 0이면 가림 의심 → 제외) |
 | `peds_at_entry` | 명 | 경로상 각 횡단보도(`crosswalk`=`exit`, `other_crosswalks_px`)에 차량이 진입한 순간 그 위에 있던 보행자 수의 합 (1 이상이면 미양보, 0이면 양보) |
 | `no_yield_at` | - | 진입 순간 보행자가 있던 횡단보도 이름 (`exit` 또는 `other_crosswalks_px`의 이름, 여러 개면 `;`로 구분, 없으면 비움) |
 | `signal_at_stopline` | - | 정지선 통과 시각의 신호 상태 (`red` / `not_red` / `unknown`) |
