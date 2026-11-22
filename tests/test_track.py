@@ -7,19 +7,22 @@ import numpy as np
 import pandas as pd
 
 from tracking.homography import compute_homography
-from tracking.track import (COLUMNS, add_meters, detect_and_track, drop_short, merge_tracks, remove_drivers,
-                            unify_class)
+from tracking.track import (COLUMNS, add_meters, detect_and_track, drop_short, load_homography, merge_tracks,
+                            remove_drivers, unify_class)
 
 FPS = 10.0
 
 
-def rows(track_id, cls, t0, t1, x0=0.0, x1=None, box=(0, 0, 10, 10)):
-    """t0~t1초 동안 매 프레임 한 줄. 미터 좌표는 x0 → x1로 고르게 움직인다."""
+def rows(track_id, cls, t0, t1, x0=0.0, x1=None, box=None, w=10.0):
+    """t0~t1초 동안 매 프레임 한 줄. box를 주면 그 박스에 고정, 아니면 폭 w·높이 10인 박스의
+    하단 중심점(픽셀)이 x0 → x1로 고르게 움직인다."""
     frames = np.arange(round(t0 * FPS), round(t1 * FPS) + 1)
     xs = np.linspace(x0, x0 if x1 is None else x1, len(frames))
+    x1s, x2s = (box[0], box[2]) if box else (xs - w / 2, xs + w / 2)
+    y1, y2 = (box[1], box[3]) if box else (0.0, 10.0)
     return pd.DataFrame({
         "frame": frames, "t_s": frames / FPS, "track_id": track_id, "cls": cls, "coco_cls": "car", "conf": 0.9,
-        "x1": box[0], "y1": box[1], "x2": box[2], "y2": box[3], "bx_m": xs, "by_m": 0.0,
+        "x1": x1s, "y1": y1, "x2": x2s, "y2": y2, "bx_m": np.nan, "by_m": np.nan,
     })
 
 
@@ -51,36 +54,43 @@ class RemoveDriversTest(unittest.TestCase):
 
 
 class MergeTracksTest(unittest.TestCase):
+    """이어 붙이는 거리 = 앞 트랙 마지막 박스 폭(기본 10 px) × dist_box(1.0). 하단 중심점 픽셀 거리로 잰다."""
     def merge(self, *parts):
-        return merge_tracks(pd.concat(parts, ignore_index=True), gap_s=2.0, dist_m=1.5)
+        return merge_tracks(pd.concat(parts, ignore_index=True), gap_s=2.0, dist_box=1.0)
 
     def test_short_gap_close_merged(self):
-        df = self.merge(rows(1, "vehicle", 0, 3, 0, 3), rows(2, "vehicle", 4.5, 6, 4, 6))  # 1.5초, 1 m
+        df = self.merge(rows(1, "vehicle", 0, 3, 0, 30), rows(2, "vehicle", 4.5, 6, 35, 50))  # 1.5초, 5 px(박스 폭의 0.5배)
         self.assertEqual(ids(df), [1])
 
     def test_long_gap_not_merged(self):
-        df = self.merge(rows(1, "vehicle", 0, 3, 0, 3), rows(2, "vehicle", 6, 7, 3, 4))   # 3초
+        df = self.merge(rows(1, "vehicle", 0, 3, 0, 30), rows(2, "vehicle", 6, 7, 30, 40))   # 3초
         self.assertEqual(ids(df), [1, 2])
 
     def test_far_not_merged(self):
-        df = self.merge(rows(1, "vehicle", 0, 3, 0, 3), rows(2, "vehicle", 4, 5, 5, 6))   # 2 m
+        df = self.merge(rows(1, "vehicle", 0, 3, 0, 30), rows(2, "vehicle", 4, 5, 45, 55))   # 15 px(박스 폭의 1.5배)
         self.assertEqual(ids(df), [1, 2])
 
+    def test_big_box_allows_longer_distance(self):
+        # 같은 30 px라도 가까이 있어 박스가 큰 차(폭 40)는 잇고, 멀리 있어 작은 차(폭 10)는 잇지 않는다
+        near = self.merge(rows(1, "vehicle", 0, 3, 0, 30, w=40), rows(2, "vehicle", 4, 5, 60, 70, w=40))
+        far = self.merge(rows(1, "vehicle", 0, 3, 0, 30), rows(2, "vehicle", 4, 5, 60, 70))
+        self.assertEqual((ids(near), ids(far)), ([1], [1, 2]))
+
     def test_other_class_not_merged(self):
-        df = self.merge(rows(1, "vehicle", 0, 3, 0, 3), rows(2, "pedestrian", 4, 5, 3, 3))
+        df = self.merge(rows(1, "vehicle", 0, 3, 0, 30), rows(2, "pedestrian", 4, 5, 30, 30))
         self.assertEqual(ids(df), [1, 2])
 
     def test_overlapping_not_merged(self):
-        df = self.merge(rows(1, "vehicle", 0, 3, 0, 3), rows(2, "vehicle", 2, 5, 3, 4))   # 동시에 있던 두 차
+        df = self.merge(rows(1, "vehicle", 0, 3, 0, 30), rows(2, "vehicle", 2, 5, 30, 40))   # 동시에 있던 두 차
         self.assertEqual(ids(df), [1, 2])
 
     def test_chain_three_parts(self):
-        df = self.merge(rows(5, "vehicle", 0, 2, 0, 2), rows(9, "vehicle", 3, 5, 2.5, 4), rows(7, "vehicle", 6, 8, 4.5, 6))
+        df = self.merge(rows(5, "vehicle", 0, 2, 0, 20), rows(9, "vehicle", 3, 5, 25, 40), rows(7, "vehicle", 6, 8, 45, 60))
         self.assertEqual(ids(df), [5])
 
     def test_nearest_candidate(self):
-        a, b = rows(1, "vehicle", 0, 2, 0, 0), rows(2, "vehicle", 0, 2, 2.5, 2.5)
-        c = rows(3, "vehicle", 3, 4, 1.4, 1.4)             # 1에서 1.4 m, 2에서 1.1 m → 둘 다 후보, 2가 더 가깝다
+        a, b = rows(1, "vehicle", 0, 2, 0, 0), rows(2, "vehicle", 0, 2, 18, 18)
+        c = rows(3, "vehicle", 3, 4, 10, 10)               # 1에서 10 px, 2에서 8 px → 둘 다 후보, 2가 더 가깝다
         df = self.merge(a, b, c)
         self.assertEqual(df.loc[df["frame"] == 35, "track_id"].tolist(), [2])
 
@@ -92,7 +102,7 @@ class OverlapMergeTest(unittest.TestCase):
     def merge(self, b_start, b_box, classes=("vehicle",), cls="vehicle"):
         a = rows(1, cls, 0, 3, 0, 3, box=self.A_BOX)
         b = rows(2, cls, b_start, 6, 3, 6, box=b_box)
-        return merge_tracks(pd.concat([a, b], ignore_index=True), 2.0, 1.5,
+        return merge_tracks(pd.concat([a, b], ignore_index=True), 2.0, 1.0,
                             overlap_s=0.5, overlap_iou=0.5, overlap_classes=classes)
 
     def test_short_overlap_high_iou_merged(self):
@@ -122,8 +132,8 @@ class DropShortTest(unittest.TestCase):
         self.assertEqual(ids(drop_short(df, 1.0)), [2])
 
     def test_merged_fragments_kept(self):
-        df = pd.concat([rows(1, "vehicle", 0, 0.6, 0, 0.6), rows(2, "vehicle", 1.5, 2.0, 1.0, 1.5)], ignore_index=True)
-        merged = merge_tracks(df, 2.0, 1.5)
+        df = pd.concat([rows(1, "vehicle", 0, 0.6, 0, 6), rows(2, "vehicle", 1.5, 2.0, 10, 15)], ignore_index=True)
+        merged = merge_tracks(df, 2.0, 1.0)
         self.assertEqual(ids(drop_short(merged, 1.0)), [1])   # 조각은 각각 1초 미만이지만 합치면 2초
         self.assertEqual(ids(drop_short(df, 1.0)), [])        # 먼저 지우면 둘 다 사라진다
 
@@ -158,6 +168,18 @@ class MetersTest(unittest.TestCase):
         df = add_meters(rows(1, "vehicle", 0, 0, box=(40, 0, 60, 50)), H)
         self.assertAlmostEqual(df["bx_m"].iloc[0], 2.0)    # 가운데 x=50 → 4 m의 절반
         self.assertAlmostEqual(df["by_m"].iloc[0], 5.0)    # 아래 y=50 → 10 m의 절반
+
+    def test_no_measurement_leaves_meters_empty(self):
+        # 실측값이 없으면 homography 없이 미터 좌표만 비운다(기술서 11.1: 판정·추적은 픽셀)
+        site = {"crosswalk": {"corners_px": [[0, 0], [100, 0], [100, 100], [0, 100]], "width_m": 0.0, "length_m": 0.0}}
+        self.assertIsNone(load_homography(site))
+        self.assertIsNone(load_homography({"crosswalk": {"corners_px": site["crosswalk"]["corners_px"]}}))
+        df = add_meters(rows(1, "vehicle", 0, 0, box=(40, 0, 60, 50)), None)
+        self.assertTrue(df[["bx_m", "by_m"]].isna().all().all())
+
+    def test_measurement_gives_homography(self):
+        site = {"crosswalk": {"corners_px": [[0, 0], [100, 0], [100, 100], [0, 100]], "width_m": 4.0, "length_m": 10.0}}
+        self.assertIsNotNone(load_homography(site))
 
     def test_schema_columns(self):
         self.assertEqual(COLUMNS, ["frame", "t_s", "track_id", "cls", "coco_cls", "conf",

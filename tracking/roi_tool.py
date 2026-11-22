@@ -2,10 +2,10 @@
 """영상 한 장면에서 출구 횡단보도 네 모서리, 출구 판정 영역(선택), 경로가 지나는 다른 횡단보도(other_crosswalks_px), 줄무늬~연석 사이 차도(ped_extra_px),
 우회전 진입로 ROI, 정지선, 정지 구간, 차량 신호등을 클릭해 교차로 설정 파일을 만든다.
 다른 횡단보도는 화면에 보이는 부분만 다각형으로 찍는다(docs/judgment_criteria.md).
-출구 네 모서리는 실측 크기를 아는 직사각형(homography 기준)이라, 연석이 둥글어 사각형 밖으로 나온 블록은
+출구 네 모서리는 실측값을 넣을 때 homography 기준 직사각형이 되므로, 연석이 둥글어 사각형 밖으로 나온 블록은
 판정 영역(crosswalk.area_px)으로 따로 감싼다. 사각형을 늘리면 인도까지 들어가 기다리는 사람이 보행자로 세어진다.
 
-입력: 원본 영상(--video), 횡단보도 실측 치수(m, 나중에 채워도 된다)
+입력: 원본 영상(--video), 횡단보도 실측 치수(m, 선택. 없으면 미터 좌표·진입 속도만 비고 판정은 픽셀로 한다, 기술서 11.1)
 출력: configs/site_<영상>.yaml (형식은 configs/site_example.yaml. camera_moved_s·right_turn_signal은 영상을 보고 직접 고친다)
 
 조작: 왼쪽 클릭 = 점 추가, 오른쪽 클릭 = 마지막 점 취소, Enter = 다음 단계,
@@ -54,7 +54,7 @@ STEPS = [
      "정지선 양 끝 2점 (2단계). 흰 정지선의 횡단보도 쪽 가장자리에 찍는다(엄격 구간 경계). "
      "정지선이 없으면 진입 쪽 횡단보도 앞 가장자리 두 점. 2단계를 안 하면 s"),
     ("stop_zone_px", POLY, True, "STOP ZONE", "far edge 3 m behind stop line, near edge = entry crosswalk start. 3+ points",
-     "정지 구간 다각형 3점 이상 (2단계, 기술서 2.3). 먼 변 = 정지선 뒤 3 m(실측 길이를 자로 삼음), "
+     "정지 구간 다각형 3점 이상 (2단계, 기술서 2.3). 먼 변 = 정지선 뒤 3 m(실측 길이를 자로 삼음, 실측이 없으면 승용차 길이 약 4.5~5 m를 자로), "
      "가까운 변 = 진입 쪽 횡단보도 시작선(줄무늬의 정지선 쪽 가장자리). 2단계를 안 하면 s"),
     ("signal_roi_px", 4, True, "TRAFFIC LIGHT (car, not pedestrian)", "4 points around the RED lamp only",
      "우회전 방향 차량 신호등의 빨간 램프만 감싸는 4점 (초록·노랑 램프와 배경 제외. 2단계, 보행자 신호등 아님, s로 건너뛰기)"),
@@ -258,12 +258,12 @@ def collect(video: Video, start_sec: float = 0.0, steps: list = STEPS, existing:
 
 
 def check_site(site: dict) -> None:
-    """모서리 4점 확인. 실측치가 있으면 homography까지 만들어 본다. 없으면(0) 경고만."""
+    """모서리 4점 확인. 실측치가 있으면 homography까지 만들어 본다. 없으면(0) 안내만(실측은 선택)."""
     cw = site["crosswalk"]
     if np.asarray(cw["corners_px"]).shape != (4, 2):
         raise ValueError(f"횡단보도 모서리는 4점이어야 한다: {cw['corners_px']}")
     if cw["width_m"] == 0 or cw["length_m"] == 0:
-        print("경고: 실측치(width_m, length_m) 미입력. yaml에서 채우기 전에는 track을 돌릴 수 없다.")
+        print("안내: 실측치(width_m, length_m) 없음. 미터 좌표·진입 속도(참고값)만 비우고 판정은 픽셀로 한다.")
     else:
         compute_homography(cw["corners_px"], cw["width_m"], cw["length_m"])  # 음수 등은 여기서 에러
 
@@ -336,8 +336,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="ROI·횡단보도 모서리 지정")
     parser.add_argument("--video", required=True)
     parser.add_argument("--out", required=True, help="예: configs/site_A_20261107_0800.yaml")
-    parser.add_argument("--width-m", type=float, help="횡단보도 좌상→우상 변 실측 길이 (생략하면 0, 나중에 채운다)")
-    parser.add_argument("--length-m", type=float, help="횡단보도 좌상→좌하 변 실측 길이 (생략하면 0, 나중에 채운다)")
+    parser.add_argument("--width-m", type=float, help="횡단보도 좌상→우상 변 실측 길이 (선택. 생략하면 0 = 미터 좌표·진입 속도 없음)")
+    parser.add_argument("--length-m", type=float, help="횡단보도 좌상→좌하 변 실측 길이 (선택. 생략하면 0)")
     parser.add_argument("--frame-sec", type=float, default=0.0, help="처음 보여 줄 장면의 시각(초)")
     parser.add_argument("--only", nargs="+", choices=list(ONLY),
                         help="이미 만든 --out 파일에서 이 영역만 다시 찍는다")
