@@ -6,6 +6,7 @@
 단속 우선 검토 시간대 TOP 3(표본 충분, 위반 의심 1건 이상)와 클립 보기, 현재 필터의 표를 CSV로 내려받기.
 "위반 의심 통계이며 실제 단속은 별도 확인이 필요하다" 문구를 항상 표시한다.
 위반 유형 "전체"는 두 유형을 나란히 보여 주고 위반율을 하나로 합치지 않는다(분모가 다르다).
+적색 판정 모드(보통·엄격)는 경미 정지(stopped_minor)를 정지로 볼지 위반 의심으로 볼지를 고른다(기술서 3.1, eval.report.apply_red_mode).
 레포 루트 .env에 DB 접속 값이 있으면(dashboard/db.py) 로그인한 사람에게만 보여 주고 자료를 MySQL에서 읽는다. 가입은 신청 후 관리자 승인(관리자 전용 가입 승인 관리 페이지).
 왼쪽 사이드바에서 "영상 분석" 화면(영상 등록 → 영역 설정 → 분석 → 리포트, dashboard/workflow.py)으로 바꾼다.
 위반 통계 화면의 "리포트 PDF 만들기"는 지금까지 쌓인 판정(현재 필터)으로 리포트를 만든다(dashboard/report_pdf.py).
@@ -23,7 +24,7 @@ import yaml
 
 from dashboard import db, report_pdf, workflow
 from dashboard.auth import PASSWORD_MIN, format_phone, signup_errors, verify_password
-from eval.report import rate_table, wilson_ci
+from eval.report import RED_MODES, apply_red_mode, rate_table, wilson_ci
 
 NOTICE = report_pdf.NOTICE
 EXPORT_NOTE = f"자동 판정 결과(사람 확인 전). {NOTICE}"
@@ -119,7 +120,7 @@ def rate_views(table: pd.DataFrame, bad: str) -> tuple[pd.DataFrame, pd.DataFram
     return view, export
 
 
-def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> None:
+def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str, red_mode: str) -> None:
     """위반 유형 하나의 요약 카드, 위반율 표, 내려받기, 단속 우선 검토 시간대. 배치는 기획서 3-4절 예시 화면을 따른다."""
     col, ok, bad, file_name = KINDS[name]
     if col not in filtered.columns or not filtered[col].isin([ok, bad]).any():
@@ -140,7 +141,7 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> Non
 
     view, export = rate_views(table, bad)
     export = export.assign(**{
-        "위반 유형": name,
+        "위반 유형": f"{name} ({red_mode} 모드)" if col == "red_result" else name,
         "자료 기간": f"{filtered['date'].min()} ~ {filtered['date'].max()}",
         "내려받은 시각": pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y-%m-%d %H:%M"),
         "비고": EXPORT_NOTE,
@@ -185,12 +186,12 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str) -> Non
                         st.caption(f"파일 없음: {clip}")
 
 
-def report_button(filtered: pd.DataFrame, min_n: int) -> None:
+def report_button(filtered: pd.DataFrame, min_n: int, red_mode: str) -> None:
     """지금까지 쌓인 판정(현재 필터)으로 분석 리포트 PDF를 만들어 내려받게 한다."""
     c1, c2 = st.columns([1, 3], vertical_alignment="center")
     if c1.button("리포트 PDF 만들기", help="지금까지 쌓인 판정 중 현재 필터(교차로·기간)에 맞는 것으로 만듭니다"):
         out = Path("outputs/reports") / f"report_{pd.Timestamp.now():%Y%m%d_%H%M%S}.pdf"
-        st.session_state["report-pdf"] = str(report_pdf.build_report(filtered, out, min_n, "우회전 위반 의심 누적 리포트"))
+        st.session_state["report-pdf"] = str(report_pdf.build_report(filtered, out, min_n, "우회전 위반 의심 누적 리포트", red_mode=red_mode))
     pdf = Path(st.session_state.get("report-pdf", ""))
     if pdf.is_file():
         c2.download_button(f"내려받기 ({pdf.name})", pdf.read_bytes(), pdf.name, "application/pdf")
@@ -326,26 +327,30 @@ def main(judged_dir: str = "outputs/judged", config: str = "configs/eval.yaml", 
     with open(config, encoding="utf-8") as fp:
         min_n = yaml.safe_load(fp)["min_n_reference"]
 
-    f1, f2, f3, f4 = st.columns(4)  # 필터는 화면 위 한 줄
+    f1, f2, f3, f4, f5 = st.columns(5)  # 필터는 화면 위 한 줄
     all_sites = sorted(df["intersection"].unique())
     sites = f1.multiselect("교차로", all_sites, default=all_sites)
     period = f2.date_input("기간", (df["date"].min(), df["date"].max()))
     kind = f3.selectbox("위반 유형", [*KINDS, ALL_KINDS])
-    sort_name = f4.selectbox("정렬", list(SORTS))
+    red_mode = f4.selectbox(
+        "적색 판정 모드", list(RED_MODES), disabled=kind == "보행자 미양보",
+        help="경미 정지 = 정지선은 넘었지만 횡단보도 전에 선 경우. 보통: 정지로 봅니다. 엄격: 위반 의심으로 봅니다.",
+    )
+    sort_name = f5.selectbox("정렬", list(SORTS))
     if len(period) != 2:  # 날짜 범위를 고르는 중
         return
 
-    filtered = apply_filters(df, sites, period[0], period[1])
+    filtered = apply_red_mode(apply_filters(df, sites, period[0], period[1]), red_mode)
     if filtered.empty:
         st.info("이 필터에 해당하는 이벤트가 없다.")
         return
-    report_button(filtered, min_n)
+    report_button(filtered, min_n, red_mode)
     names = list(KINDS) if kind == ALL_KINDS else [kind]
     for area, name in zip(st.columns(len(names)), names):  # "전체"는 좌우로 나란히
         with area:
             if len(names) > 1:
                 st.header(name)
-            render(name, filtered, min_n, sort_name)
+            render(name, filtered, min_n, sort_name, red_mode)
     st.caption("클립은 얼굴·번호판을 블러한 영상만 보여 줍니다.")
 
 

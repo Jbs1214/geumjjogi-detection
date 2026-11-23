@@ -4,7 +4,7 @@
 시간대는 영상 파일 이름({교차로}_{YYYYMMDD}_{HHMM})에서 읽는다.
 
 입력: outputs/judged/*.csv, data/labels/*.csv (정답 구간 비교용), configs/eval.yaml
-출력: outputs/report/yield_rate.csv, outputs/report/yield_rate.png, outputs/report/red_rate.csv(2단계 판정이 나온 뒤), 지표 출력
+출력: outputs/report/yield_rate.csv, outputs/report/yield_rate.png, outputs/report/red_rate.csv(보통 모드)·red_rate_strict.csv(엄격 모드, 2단계 판정이 나온 뒤), 지표 출력
 """
 import argparse
 import math
@@ -33,6 +33,16 @@ def violation_rate(results: pd.Series) -> float:
     """미양보 / (양보 + 미양보). 판정 대상이 없으면 nan."""
     n = results.isin(["yield", "no_yield"]).sum()
     return (results == "no_yield").sum() / n if n else math.nan
+
+
+RED_MODES = {"보통": "stopped", "엄격": "not_stopped"}  # 적색 판정 모드: 경미 정지(stopped_minor)를 무엇으로 세는가 (기술서 3.1)
+
+
+def apply_red_mode(judged: pd.DataFrame, mode: str = "보통") -> pd.DataFrame:
+    """경미 정지를 보통 모드에서는 정지, 엄격 모드에서는 미정지로 바꾼 표. 판정 대상(준수 + 경미 + 미정지)은 두 모드가 같다."""
+    if "red_result" not in judged.columns:
+        return judged
+    return judged.assign(red_result=judged["red_result"].replace("stopped_minor", RED_MODES[mode]))
 
 
 def rate_table(
@@ -154,10 +164,13 @@ def report(judged_dir: str, labels_dir: str, config: str, out_dir: str = "output
     table.to_csv(out / "yield_rate.csv", index=False, encoding="utf-8-sig")
     plot_rates(table, out / "yield_rate.png")
     print(table.to_string(index=False))
-    if has_red_judgment(judged):
-        red_table = rate_table(judged, cfg["min_n_reference"], "red_result", "stopped", "not_stopped")
-        red_table.to_csv(out / "red_rate.csv", index=False, encoding="utf-8-sig")
-        print(red_table.to_string(index=False))
+    for mode, file_name in zip(RED_MODES, ["red_rate.csv", "red_rate_strict.csv"]):
+        red = apply_red_mode(judged, mode)
+        if has_red_judgment(red):
+            red_table = rate_table(red, cfg["min_n_reference"], "red_result", "stopped", "not_stopped")
+            red_table.to_csv(out / file_name, index=False, encoding="utf-8-sig")
+            print(f"적색 위반율 ({mode} 모드)")
+            print(red_table.to_string(index=False))
 
     metrics, kappas = evaluate(judged, labels_dir, cfg)
     if not metrics.empty:

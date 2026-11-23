@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
-from eval.report import rate_table, wilson_ci
+from eval.report import RED_MODES, apply_red_mode, rate_table, wilson_ci
 
 NOTICE = "위반 의심 통계이며 실제 단속은 별도 확인이 필요하다"
 KINDS = {  # 표시 이름: (판정 컬럼, 위반 아님, 위반 의심). dashboard/app.py KINDS와 같아야 한다(테스트로 확인)
@@ -59,7 +59,7 @@ def table(ax, rows: list[list[str]], columns: list[str], widths: list[float]) ->
             cell.set_text_props(weight="bold", color=NAVY)
 
 
-def cover(pdf: PdfPages, judged: pd.DataFrame, title: str, min_n: int, videos: dict | None) -> None:
+def cover(pdf: PdfPages, judged: pd.DataFrame, title: str, min_n: int, videos: dict | None, red_mode: str) -> None:
     fig = plt.figure(figsize=A4)
     wall = pd.to_datetime(judged["wall_time"])
     videos = videos or dict(zip(judged["video"], judged["intersection"]))  # 이벤트 0건인 영상도 세려면 넘긴다
@@ -84,7 +84,9 @@ def cover(pdf: PdfPages, judged: pd.DataFrame, title: str, min_n: int, videos: d
     table(ax, summary_rows(judged), ["위반 유형", "판정 대상", "위반 의심", "위반율 (95% 신뢰구간)", "제외"], [0.2, 0.15, 0.15, 0.32, 0.12])
     fig.text(0.08, y - 0.33,
              f"위반율 = 위반 의심 / 판정 대상(제외 뺀 것). 신뢰구간은 Wilson 95%. 교차로·시간대별 판정 대상 {min_n}건 미만은 '참고용'.\n"
-             "자동 판정 결과(사람 확인 전)입니다. 적색 미정지는 우회전 방향 신호가 빨간불일 때만 봅니다.",
+             "자동 판정 결과(사람 확인 전)입니다. 적색 미정지는 우회전 방향 신호가 빨간불일 때만 봅니다.\n"
+             f"적색 판정 모드: {red_mode} (정지선은 넘었지만 횡단보도 전에 선 경미 정지를 "
+             f"{'위반 의심으로' if RED_MODES[red_mode] == 'not_stopped' else '정지로'} 봅니다).",
              fontsize=8.5, color=GRAY, va="top", linespacing=1.6)
     pdf.savefig(fig)
     plt.close(fig)
@@ -121,12 +123,14 @@ def kind_pages(pdf: PdfPages, judged: pd.DataFrame, name: str, min_n: int) -> No
 
 
 def build_report(judged: pd.DataFrame, out: Path, min_n: int, title: str = "우회전 위반 의심 분석 리포트",
-                 videos: dict | None = None) -> Path:
-    """판정 표로 리포트 PDF를 만들고 경로를 돌려준다. videos = {영상 이름: 교차로}(이벤트가 0건인 영상까지 세려면 준다)."""
+                 videos: dict | None = None, red_mode: str = "보통") -> Path:
+    """판정 표로 리포트 PDF를 만들고 경로를 돌려준다. videos = {영상 이름: 교차로}(이벤트가 0건인 영상까지 세려면 준다).
+    red_mode = 적색 판정 모드(기술서 3.1, 기본 보통)."""
     out = Path(out)
+    judged = apply_red_mode(judged, red_mode)
     out.parent.mkdir(parents=True, exist_ok=True)
     with plt.rc_context({"font.family": FONT, "axes.unicode_minus": False}), PdfPages(out) as pdf:
-        cover(pdf, judged, title, min_n, videos)
+        cover(pdf, judged, title, min_n, videos, red_mode)
         for name in KINDS:
             kind_pages(pdf, judged, name, min_n)
     return out
