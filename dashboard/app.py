@@ -24,11 +24,11 @@ import yaml
 
 from dashboard import db, report_pdf, workflow
 from dashboard.auth import PASSWORD_MIN, format_phone, signup_errors, verify_password
-from eval.report import RED_MODES, apply_red_mode, rate_table, wilson_ci
+from eval.report import RED_MODES, apply_red_mode, rate_table, top_slots, wilson_ci
 
 NOTICE = report_pdf.NOTICE
 EXPORT_NOTE = f"자동 판정 결과(사람 확인 전). {NOTICE}"
-TOP_N = 3
+TOP_N = report_pdf.TOP_N
 KINDS = {  # 표시 이름: (판정 컬럼, 위반 아님, 위반 의심, 내려받기 파일 이름)
     "보행자 미양보": ("ped_result", "yield", "no_yield", "violation_rate.csv"),
     "적색 미정지": ("red_result", "stopped", "not_stopped", "red_rate.csv"),
@@ -87,11 +87,6 @@ def load_judged(judged_dir: str) -> pd.DataFrame:
 
 def apply_filters(df: pd.DataFrame, intersections: list[str], start: date, end: date) -> pd.DataFrame:
     return df[df["intersection"].isin(intersections) & (df["date"] >= start) & (df["date"] <= end)]
-
-
-def top_slots(table: pd.DataFrame, n: int = TOP_N) -> pd.DataFrame:
-    """표본이 충분하고(참고용이 아니고) 위반 의심이 한 건이라도 있는 칸 중 위반율 높은 순 n개."""
-    return table[(table["note"] == "") & (table["violation_rate"] > 0)].sort_values("violation_rate", ascending=False).head(n)
 
 
 def pct(x: float) -> str:
@@ -164,7 +159,7 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str, red_mo
     )
 
     st.subheader(f"단속 우선 검토 시간대 TOP {TOP_N} (표본 충분한 시간대 중)")
-    top = top_slots(table)
+    top = top_slots(table, TOP_N)
     if top.empty:
         st.info(f"판정 대상이 {min_n}건 이상이면서 위반 의심이 있는 시간대가 아직 없다.")
         return
