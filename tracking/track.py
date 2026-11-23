@@ -2,7 +2,7 @@
 """YOLO + ByteTrack으로 차량·오토바이·보행자를 추적한다.
 오토바이 박스와 driver_overlap_min 이상 겹치는 pedestrian은 운전자로 보고 뺀다.
 짧은 트랙(min_track_s)은 지우고, 끊긴 같은 종류 트랙은 merge_gap_s 안이고 앞 트랙 마지막 박스 폭 × merge_dist_box(픽셀) 안이면
-이어 붙인다(기술서 11.1 좌표 기준: 판정·추적 기준은 모든 교차로에서 픽셀).
+이어 붙인다(기술서 11.1 좌표 기준: 판정·추적 기준은 모든 교차로에서 픽셀). 두 박스 크기가 크게 다르면(merge_size_min) 잇지 않는다.
 횡단보도 실측값(crosswalk.width_m·length_m)이 있으면 박스 하단 중심점을 미터 좌표(bx_m, by_m)로도 남기고(진입 속도 참고값용),
 없으면 두 칸을 비운다.
 시간이 겹쳐 ID가 바뀐 트랙도 merge_overlap_s·merge_overlap_iou 조건이면 잇는다(merge_overlap_classes만).
@@ -24,6 +24,7 @@ import pandas as pd
 import yaml
 from ultralytics import YOLO
 
+from tracking.events import size_ratio
 from tracking.homography import compute_homography, to_meters
 
 COLUMNS = ["frame", "t_s", "track_id", "cls", "coco_cls", "conf", "x1", "y1", "x2", "y2", "bx_m", "by_m"]
@@ -97,20 +98,22 @@ def mean_iou(a: pd.DataFrame, b: pd.DataFrame) -> float:
 
 
 def merge_tracks(df: pd.DataFrame, gap_s: float, dist_box: float, overlap_s: float = 0.0,
-                 overlap_iou: float = 0.5, overlap_classes: tuple = ()) -> pd.DataFrame:
+                 overlap_iou: float = 0.5, overlap_classes: tuple = (), size_min: float = 0.0) -> pd.DataFrame:
     """트랙 A가 끝나고 gap_s 안에, A 마지막 박스 하단 중심점에서 A 마지막 박스 폭 × dist_box(픽셀) 안에서
     시작한 같은 종류 트랙 B는 A로 본다. 박스 폭이 그 자리의 축척 역할을 해 화면 어디서나 같은 뜻이 된다(기술서 11.1).
+    A 마지막 박스와 B 첫 박스의 size_ratio(폭 비·높이 비 중 큰 값)가 size_min 미만이면 다른 물체로 보고 잇지 않는다
+    (박스가 큰 오검출은 반경도 커서 멀리 있는 다른 차와 이어진다).
     시작 순으로 보며, 후보가 여럿이면 가장 가까운 것. A←B←C처럼 여러 번 이어질 수 있다.
     overlap_classes의 클래스는 B가 A 끝나기 overlap_s 전부터 시작했어도(한 물체에 ID가 둘 붙었다가 하나가 끝남)
     겹친 프레임의 평균 IoU가 overlap_iou 이상이면 잇는다. IoU 조건은 줄 선 다른 차·옆 사람을 잇지 않으려는 것.
     겹친 프레임은 conf가 높은 행 하나만 남긴다."""
     df = df.sort_values(["track_id", "frame"])
-    g = df.assign(px=(df["x1"] + df["x2"]) / 2, width=df["x2"] - df["x1"]).groupby("track_id")
+    g = df.assign(px=(df["x1"] + df["x2"]) / 2, width=df["x2"] - df["x1"], height=df["y2"] - df["y1"]).groupby("track_id")
     info = pd.DataFrame({
         "cls": g["cls"].agg(lambda s: s.mode().iloc[0]),  # 프레임마다 클래스가 흔들릴 수 있어 최빈값
         "start": g["t_s"].min(), "end": g["t_s"].max(),
         "fx": g["px"].first(), "fy": g["y2"].first(), "lx": g["px"].last(), "ly": g["y2"].last(),
-        "lw": g["width"].last(),
+        "lw": g["width"].last(), "lh": g["height"].last(), "fw": g["width"].first(), "fh": g["height"].first(),
     }).sort_values("start")
 
     def same_object(a_tid, b_tid) -> bool:
@@ -118,13 +121,13 @@ def merge_tracks(df: pd.DataFrame, gap_s: float, dist_box: float, overlap_s: flo
         common = a.index.intersection(b.index)
         return len(common) > 0 and mean_iou(a.loc[common], b.loc[common]) >= overlap_iou
 
-    rename, tails = {}, {}  # tails = 이어 붙일 수 있는 트랙의 끝 {대표 id: (cls, 끝 시각, 끝 x, 끝 y, 끝 박스 폭, 끝 조각 id)}
+    rename, tails = {}, {}  # tails = 이어 붙일 수 있는 트랙의 끝 {대표 id: (cls, 끝 시각, 끝 x, 끝 y, 끝 박스 폭, 끝 박스 높이, 끝 조각 id)}
     for tid, b in info.iterrows():
         tails = {k: v for k, v in tails.items() if b["start"] - v[1] <= gap_s}  # 너무 오래전에 끝난 것은 버림
         best, best_d = None, math.inf
-        for root, (cls, end, lx, ly, lw, last) in tails.items():
+        for root, (cls, end, lx, ly, lw, lh, last) in tails.items():
             d = math.hypot(b["fx"] - lx, b["fy"] - ly)
-            if cls != b["cls"] or d > lw * dist_box or d > best_d:
+            if cls != b["cls"] or d > lw * dist_box or d > best_d or size_ratio(lw, lh, b["fw"], b["fh"]) < size_min:
                 continue
             overlapped = (cls in overlap_classes and end - overlap_s <= b["start"] <= end < b["end"]
                           and same_object(last, tid))
@@ -133,7 +136,7 @@ def merge_tracks(df: pd.DataFrame, gap_s: float, dist_box: float, overlap_s: flo
         root = tid if best is None else best
         if best is not None:
             rename[tid] = best
-        tails[root] = (b["cls"], b["end"], b["lx"], b["ly"], b["lw"], tid)
+        tails[root] = (b["cls"], b["end"], b["lx"], b["ly"], b["lw"], b["lh"], tid)
     df = df.assign(track_id=df["track_id"].map(lambda t: rename.get(t, t)))
     return df.sort_values("conf", ascending=False).drop_duplicates(["frame", "track_id"]).sort_values(["track_id", "frame"])
 
@@ -163,7 +166,7 @@ def track(video: str, site: str, config: str, out_dir: str = "outputs/tracks") -
     n_drivers = n_rows - len(df)
     df = add_meters(df, H)
     df = merge_tracks(df, cfg["merge_gap_s"], cfg["merge_dist_box"], cfg["merge_overlap_s"],
-                      cfg["merge_overlap_iou"], tuple(cfg["merge_overlap_classes"]))
+                      cfg["merge_overlap_iou"], tuple(cfg["merge_overlap_classes"]), cfg["merge_size_min"])
     n_merged = df["track_id"].nunique()
     df = unify_class(drop_short(df, cfg["min_track_s"]))
     df = df.sort_values(["frame", "track_id"])[COLUMNS].round(
