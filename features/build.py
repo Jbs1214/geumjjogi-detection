@@ -2,7 +2,8 @@
 """이벤트마다 속도·거리·횡단보도 위 보행자 특징을 계산한다.
 1단계는 경로상 각 횡단보도(crosswalk = exit, other_crosswalks_px)에 차량이 진입하는 순간만 본다:
 그 위 보행자 수의 합(peds_at_entry), 보행자가 있던 횡단보도 이름(no_yield_at),
-진입 직전 merge_gap_s 안에 그 횡단보도 경계에서 occluded_edge_m보다 안쪽에서 끊긴 보행자 트랙 수의 합(peds_lost, 가림 의심).
+진입 직전 merge_gap_s 안에 그 횡단보도 경계에서 사람 박스 높이 × occluded_edge_box(픽셀)보다 안쪽에서 끊긴 보행자 트랙 수의 합
+(peds_lost, 가림 의심. 박스 높이를 자로 써서 실측값이 필요 없다, 기술서 11.1 좌표 기준).
 
 진입 순간: 출구는 이벤트의 t_enter_s, 다른 횡단보도는 그 차량 트랙이 출구 진입 전에 처음 들어간 프레임.
 끊긴 트랙을 이어 본 이벤트(events의 link_track_id)는 앞 트랙 경로까지 합쳐서 본다(경로상 횡단보도 전부, 기술서 11.1).
@@ -11,7 +12,7 @@
 보행자 박스는 신뢰도 ped_conf_min 이상만 쓴다(가려져 위치가 틀어진 저신뢰 박스가 경계 밖 사람을 안으로 넣지 않게, 기술서 11.20).
 그 프레임에 검출이 빠진 보행자 트랙은 앞뒤 행 간격이 merge_gap_s 이하이면 직선 보간한 위치로 센다
 (검출이 잠깐 빠진 순간 서 있던 보행자가 0명으로 세어지지 않게. 트랙 이어 붙이기와 같은 기준).
-entry_speed는 출구 진입 순간 속도(미터 좌표 speed_window_s 이동평균 후 차분, 참고값).
+entry_speed는 출구 진입 순간 속도(미터 좌표 speed_window_s 이동평균 후 차분, 참고값). 실측값이 없어 미터 좌표가 비면 비운다.
 2단계(--signal을 줄 때만 채운다, 기술서 2.3): signal_at_stopline은 정지선 통과 시각(t_stopline_s)의 빨간불 시간표 상태,
 stop_level은 차 앞 끝(박스 아래변 세 점 중 정지선 너머로 가장 나간 점)이 정지 구간(stop_zone_px) 안에서 멈춘 위치
 (strict 엄격 구간 / minor 보통 구간에서만 / none 정지 없음). 판정할 수 없으면 비우고 이유를 stop_note에 적는다.
@@ -31,8 +32,6 @@ import pandas as pd
 import yaml
 
 from tracking.events import exit_area, inside
-from tracking.homography import to_meters
-from tracking.track import load_homography
 
 NEW_COLUMNS = ["entry_speed", "peds_lost", "peds_at_entry", "no_yield_at", "signal_at_stopline", "stop_level", "stop_note"]
 
@@ -70,12 +69,13 @@ def vehicle_entries(v: pd.DataFrame, polys: dict, exit_frame: int) -> dict:
     return out
 
 
-def count_lost(ends: pd.DataFrame, t_entry: float, poly_px: list, poly_m: np.ndarray, gap_s: float, edge_m: float) -> int:
-    """진입 직전 gap_s 안에 끝난 보행자 트랙 중, 마지막 점이 횡단보도 안이고 경계에서 edge_m보다 안쪽인 것의 수(기술서 11.1).
-    걸어 나간 사람은 경계 근처에서 끝나고, 안쪽에서 사라졌다면 진입 순간 가려져 있었을 수 있다."""
+def count_lost(ends: pd.DataFrame, t_entry: float, poly_px: list, gap_s: float, edge_box: float) -> int:
+    """진입 직전 gap_s 안에 끝난 보행자 트랙 중, 마지막 점이 횡단보도 안이고 경계에서 그 박스 높이 × edge_box(픽셀)보다
+    안쪽인 것의 수(기술서 11.1). 걸어 나간 사람은 경계 근처에서 끝나고, 안쪽에서 사라졌다면 진입 순간 가려져 있었을 수 있다."""
     e = ends[(ends["t_s"] >= t_entry - gap_s) & (ends["t_s"] < t_entry)]
-    e = e[inside(poly_px, e["cx"], e["y2"])]
-    return int(sum(cv2.pointPolygonTest(poly_m, (float(x), float(y)), True) > edge_m for x, y in zip(e["bx_m"], e["by_m"])))
+    poly = np.array(poly_px, np.float32)
+    return int(sum(cv2.pointPolygonTest(poly, (float(x), float(y)), True) > (y - y1) * edge_box
+                   for x, y, y1 in zip(e["cx"], e["y2"], e["y1"])))
 
 
 def speeds(v: pd.DataFrame, window: int) -> pd.Series:
@@ -169,10 +169,8 @@ def build_features(events: str, tracks: str, site: str, signal: str | None = Non
     gap = int(round(cfg["merge_gap_s"] * fps))
     window = max(1, int(round(cfg["speed_window_s"] * fps)))
 
-    H = load_homography(s)
     polys = crosswalks(s)
     extra = s.get("ped_extra_px") or {}  # 보행자만 세는 줄무늬~연석 사이 차도 {횡단보도 이름: 다각형}
-    polys_m = {k: to_meters(H, np.array(p, dtype=float)).astype(np.float32) for k, p in polys.items()}
     peds = tr[(tr["cls"] == "pedestrian") & (tr["conf"] >= cfg["ped_conf_min"])]
     ends = peds.groupby("track_id").tail(1)
     links = ev["link_track_id"] if "link_track_id" in ev else pd.Series(np.nan, index=ev.index)  # 컬럼 추가 전 events도 읽음
@@ -198,7 +196,7 @@ def build_features(events: str, tracks: str, site: str, signal: str | None = Non
             at += n
             if n:
                 names.append(name)
-            lost += count_lost(ends, frame / fps, polys[name], polys_m[name], cfg["merge_gap_s"], s["occluded_edge_m"])
+            lost += count_lost(ends, frame / fps, polys[name], cfg["merge_gap_s"], s["occluded_edge_box"])
         sig, level, note = "", "", ""
         if signal:
             sig = signal_at(seg, e.t_stopline_s)
