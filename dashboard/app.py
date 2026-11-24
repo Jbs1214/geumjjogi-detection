@@ -6,7 +6,7 @@
 단속 우선 검토 시간대 TOP 3(표본 충분, 위반 의심 1건 이상)와 클립 보기, 현재 필터의 표를 CSV로 내려받기.
 "위반 의심 통계이며 실제 단속은 별도 확인이 필요하다" 문구를 항상 표시한다.
 위반 유형 "전체"는 두 유형을 나란히 보여 주고 위반율을 하나로 합치지 않는다(분모가 다르다).
-적색 판정 모드(보통·엄격)는 경미 정지(stopped_minor)를 정지로 볼지 위반 의심으로 볼지를 고른다(기술서 3.1, eval.report.apply_red_mode).
+사이드바의 분석 모드(보통·엄격)는 경미 정지(stopped_minor)를 정지로 볼지 위반 의심으로 볼지를 고른다(기술서 3.1, eval.report.apply_red_mode).
 레포 루트 .env에 DB 접속 값이 있으면(dashboard/db.py) 로그인한 사람에게만 보여 주고 자료를 MySQL에서 읽는다. 가입은 신청 후 관리자 승인(관리자 전용 가입 승인 관리 페이지).
 왼쪽 사이드바에서 "영상 분석" 화면(영상 등록 → 영역 설정 → 분석 → 리포트, dashboard/workflow.py)으로 바꾼다.
 위반 통계 화면의 "리포트 PDF 만들기"는 지금까지 쌓인 판정(현재 필터)으로 리포트를 만든다(dashboard/report_pdf.py).
@@ -308,8 +308,13 @@ def main(judged_dir: str = "outputs/judged", config: str = "configs/eval.yaml", 
         if pending is not None and st.session_state.get("view") == "approval":
             approval_page(pending)
             return
-    if st.sidebar.radio("화면", ["위반 통계", "영상 분석"], key="page") == "영상 분석":
-        workflow.analysis_page()
+    page = st.sidebar.radio("화면", ["위반 통계", "영상 분석"], key="page")
+    red_mode = st.sidebar.segmented_control(
+        "분석 모드", list(RED_MODES), default="보통", required=True, key="red-mode",
+        help="경미 정지 = 정지선은 넘었지만 횡단보도 전에 선 경우. 보통: 정지로 봅니다. 엄격: 위반 의심으로 봅니다.",
+    )
+    if page == "영상 분석":
+        workflow.analysis_page(red_mode)
         return
     if use_db:
         df = db.fetch_events()
@@ -322,16 +327,12 @@ def main(judged_dir: str = "outputs/judged", config: str = "configs/eval.yaml", 
     with open(config, encoding="utf-8") as fp:
         min_n = yaml.safe_load(fp)["min_n_reference"]
 
-    f1, f2, f3, f4, f5 = st.columns(5)  # 필터는 화면 위 한 줄
+    f1, f2, f3, f4 = st.columns(4)  # 필터는 화면 위 한 줄
     all_sites = sorted(df["intersection"].unique())
     sites = f1.multiselect("교차로", all_sites, default=all_sites)
     period = f2.date_input("기간", (df["date"].min(), df["date"].max()))
     kind = f3.selectbox("위반 유형", [*KINDS, ALL_KINDS])
-    red_mode = f4.selectbox(
-        "적색 판정 모드", list(RED_MODES), disabled=kind == "보행자 미양보",
-        help="경미 정지 = 정지선은 넘었지만 횡단보도 전에 선 경우. 보통: 정지로 봅니다. 엄격: 위반 의심으로 봅니다.",
-    )
-    sort_name = f5.selectbox("정렬", list(SORTS))
+    sort_name = f4.selectbox("정렬", list(SORTS))
     if len(period) != 2:  # 날짜 범위를 고르는 중
         return
 
