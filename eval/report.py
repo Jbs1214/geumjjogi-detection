@@ -35,6 +35,11 @@ def violation_rate(results: pd.Series) -> float:
     return (results == "no_yield").sum() / n if n else math.nan
 
 
+def top_slots(table: pd.DataFrame, n: int = 3) -> pd.DataFrame:
+    """단속 우선 검토 시간대: 표본이 충분하고(참고용이 아니고) 위반 의심이 한 건이라도 있는 칸 중 위반율 높은 순 n개."""
+    return table[(table["note"] == "") & (table["violation_rate"] > 0)].sort_values("violation_rate", ascending=False).head(n)
+
+
 RED_MODES = {"보통": "stopped", "엄격": "not_stopped"}  # 적색 판정 모드: 경미 정지(stopped_minor)를 무엇으로 세는가 (기술서 3.1)
 
 

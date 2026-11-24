@@ -217,6 +217,17 @@ class ReportTest(unittest.TestCase):
         out = report_pdf.build_report(empty, Path(tempfile.mkdtemp()) / "r.pdf", 30, videos={"A-S_20261122_0800": "A"})
         self.assertTrue(out.read_bytes().startswith(b"%PDF"))
 
+    def test_details_follow_available_columns(self):
+        """제외 사유·횡단보도 칸이 있으면 표로 나오고, 없는 표(DB에서 읽은 것)로도 리포트가 만들어진다."""
+        df = judged_rows("A-S_20261122_0800", "A").assign(
+            ped_exclude_reason=[None, None, "camera_moved"], no_yield_at=[None, "near;exit", None])
+        self.assertEqual(report_pdf.reason_rows(df, "ped_result"), [["카메라가 움직인 구간", "1건"]])
+        self.assertEqual(sorted(report_pdf.crosswalk_rows(df)), [["진입 쪽 횡단보도", "1건"], ["출구 쪽 횡단보도", "1건"]])
+        plain = judged_rows("A-S_20261122_0800", "A")   # DB의 events 표와 같은 칸
+        self.assertEqual(report_pdf.detail_blocks(plain, "ped_result"), [])
+        out = report_pdf.build_report(plain, Path(tempfile.mkdtemp()) / "r.pdf", 30, red_mode="엄격")
+        self.assertTrue(out.read_bytes().startswith(b"%PDF"))
+
     def test_kinds_match_dashboard(self):
         self.assertEqual({k: v[:3] for k, v in app.KINDS.items()}, report_pdf.KINDS)
         self.assertEqual(app.NOTICE, report_pdf.NOTICE)
