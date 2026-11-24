@@ -2,6 +2,8 @@
 """대시보드 "영상 분석" 페이지: ① 영상 등록 → ② 영역 설정 → ③ 분석(메일 선택) → ④ 리포트.
 여러 교차로·영상을 등록해 두고 영역 설정을 누르면 영역이 없는 영상마다 영역 지정 창(tracking.roi_tool)을 차례로 띄운다.
 영역 지정 창은 대시보드를 실행한 PC 화면에 뜬다(로컬 PC에서 쓰는 것을 전제).
+영상을 등록할 때 날씨와 신호 조건을 고르고, 낮·야간은 촬영 시작 시각으로 정한다(기술서 11.1).
+사이드바: 공통 필터(교차로·촬영 기간·낮/야간·날씨, 등록된 영상 목록과 처리 현황에만 적용)와 처리 현황·영역 설정 시작.
 화면 없는 처리(목록 저장, 영역 지정 실행, 분석 작업)는 dashboard/pipeline.py.
 """
 import re
@@ -15,56 +17,105 @@ from dashboard import mailer, pipeline
 from dashboard.auth import EMAIL_PATTERN
 
 REFRESH_SEC = 5  # 분석 진행 상황을 다시 읽는 간격(초)
+NEW_SITE = "+ 새 교차로"
+ALL = "전체"
+NO_REDO = "(선택 안 함)"
+BADGES = {"분석 완료": "green", "영역 완료": "blue", "영역 미설정": "orange"}  # 상태: 배지 색
+TABLE_WIDTHS = [2, 1, 2, 1.6, 2.4, 1]
+
+
+def start_time(video: dict) -> datetime:
+    return datetime.strptime(video["start"], "%Y-%m-%d %H:%M")
+
+
+def sidebar_filters(videos: list[dict]) -> list[dict]:
+    """사이드바 공통 필터를 그리고, 걸러 낸 영상 목록을 돌려준다."""
+    side = st.sidebar
+    side.subheader("공통 필터")
+    if not videos:
+        side.caption("등록한 영상이 없습니다.")
+        return []
+    site = side.selectbox("교차로", [ALL, *sorted({v["intersection"] for v in videos})])
+    days = [start_time(v).date() for v in videos]
+    period = side.date_input("촬영 기간", (min(days), max(days)))
+    when = side.segmented_control("낮 / 야간", [ALL, "낮", "야간"], default=ALL, required=True)
+    weather = side.segmented_control("날씨", [ALL, *pipeline.WEATHERS], default=ALL, required=True, key="filter-weather")
+    if len(period) != 2:  # 날짜 범위를 고르는 중
+        return videos
+    return [v for v in videos
+            if site in (ALL, v["intersection"]) and period[0] <= start_time(v).date() <= period[1]
+            and when in (ALL, pipeline.day_night(start_time(v))) and weather in (ALL, v.get("weather"))]
+
+
+def sidebar_status(videos: list[dict]) -> bool:
+    """사이드바 처리 현황과 영역 설정 시작 버튼. 버튼을 눌렀으면 True."""
+    side = st.sidebar
+    side.subheader("이 화면: 처리 현황")
+    counts = pipeline.status_counts(videos)
+    for name, n in counts.items():
+        side.text(f"{name} {n}")
+    return side.button(f"영역 설정 시작 ({counts['영역 미설정']}개)", type="primary", width="stretch",
+                       disabled=not counts["영역 미설정"] or pipeline.running_job() is not None)
 
 
 def register_section() -> None:
     st.subheader("① 영상 등록")
-    st.caption("교차로·영상을 여러 개 등록해 둔 뒤 아래 '영역 설정'을 누르면 한 번에 차례로 설정합니다. 영상은 PC에 있는 그대로 쓰고 복사하지 않습니다.")
-    with st.form("add-video", clear_on_submit=False):
+    st.caption("교차로·영상을 여러 개 등록해 둔 뒤 사이드바의 '영역 설정 시작'을 누르면 한 번에 차례로 설정합니다. 영상은 PC에 있는 그대로 쓰고 복사하지 않습니다.")
+    with st.container(border=True):  # 폼을 쓰지 않는다: 새 교차로 입력 칸과 낮·야간 표시가 고르는 즉시 바뀌어야 한다
+        known = sorted({v["intersection"] for v in pipeline.load_videos()})
         c1, c2 = st.columns(2)
-        name = c1.text_input("교차로 이름", placeholder="예: 강남역 (공백·밑줄 없이)")
+        name = c1.selectbox("교차로 이름 (목록에서 선택)", [*known, NEW_SITE])
+        if name == NEW_SITE:
+            name = c1.text_input("새 교차로 이름", placeholder="예: 강남역 (공백·밑줄 없이)")
         direction = c2.selectbox("우회전 방향 (들어오는 쪽 → 꺾어 나가는 쪽)", list(pipeline.DIRECTIONS))
         c3, c4 = st.columns(2)
         day = c3.date_input("촬영 날짜")
-        start = c4.time_input("촬영 시작 시각", time(8, 0), step=60)
+        start = datetime.combine(day, c4.time_input("촬영 시작 시각", time(8, 0), step=60))
+        c5, c6 = st.columns(2)
+        weather = c5.segmented_control("날씨", pipeline.WEATHERS, default=pipeline.WEATHERS[0], required=True)
+        c6.text_input("낮 / 야간 (시각으로 자동)", pipeline.day_night(start), disabled=True)
+        signal = st.segmented_control("신호 조건", list(pipeline.SIGNALS), default=next(iter(pipeline.SIGNALS)), required=True)
         path = st.text_input("영상 파일 경로", placeholder=r"예: D:\영상\강남역_1122_0800.mp4  (탐색기에서 Shift+우클릭 → 경로로 복사)")
-        if st.form_submit_button("목록에 추가"):
-            error = pipeline.add_video(name, direction, datetime.combine(day, start), path)
+        if st.button("목록에 추가"):
+            error = pipeline.add_video(name, direction, start, path, weather, pipeline.SIGNALS[signal])
             if error:
                 st.error(error)
             else:
-                st.success("목록에 추가했습니다.")
+                st.rerun()  # 사이드바의 필터·처리 현황까지 새 목록으로 다시 그린다
 
-    videos = pipeline.load_videos()
+
+def video_table(videos: list[dict], duplicated: set[str]) -> None:
+    st.markdown("**등록된 영상**")
     if not videos:
-        st.info("등록한 영상이 없습니다.")
+        st.info("등록한 영상이 없거나 필터에 맞는 영상이 없습니다.")
         return
     busy = pipeline.running_job() is not None
-    header = st.columns([2, 1, 2, 4, 1.4, 1])
-    for col, label in zip(header, ["교차로", "방향", "촬영 시작", "영상", "상태", ""]):
+    for col, label in zip(st.columns(TABLE_WIDTHS), ["교차로", "방향", "촬영 시작", "날씨·주야", "상태", ""]):
         col.markdown(f"**{label}**")
     for v in videos:
-        c = st.columns([2, 1, 2, 4, 1.4, 1], vertical_alignment="center")
+        c = st.columns(TABLE_WIDTHS, vertical_alignment="center")
         c[0].text(v["intersection"])
         c[1].text(v["direction"])
         c[2].text(v["start"])
-        c[3].text(Path(v["source"]).name)
-        c[4].text(pipeline.video_status(v))
+        c[3].text("·".join(filter(None, [v.get("weather"), pipeline.day_night(start_time(v))])))  # 예전에 등록한 영상은 날씨가 없다
+        status = pipeline.video_status(v)
+        c[4].markdown(f":{BADGES[status]}-badge[{status}]" + (" :red-badge[중복]" if v["id"] in duplicated else ""))
         if c[5].button("빼기", key=f"remove-{v['id']}", disabled=busy, help="목록에서만 뺍니다(영상·결과는 그대로)"):
             pipeline.remove_video(v["id"])
             st.rerun()
+    st.caption('같은 파일명이 두 번 등록되면 "중복"으로 표시합니다.')
 
 
-def roi_section() -> None:
+def roi_section(videos: list[dict], start: bool) -> None:
+    """start = 사이드바의 영역 설정 시작을 눌렀는가(영역이 없는 영상 전부). 이미 설정한 영상은 여기서 하나씩 다시 한다."""
     st.subheader("② 영역 설정")
-    videos = pipeline.load_videos()
     todo = [v for v in videos if pipeline.video_status(v) == "영역 미설정"]
-    st.caption("누르면 이 PC 화면에 영역 지정 창이 영상마다 차례로 뜹니다. 창의 안내대로 찍고 마지막 화면에서 Enter로 저장하면 다음 영상으로 넘어갑니다(Esc = 그 영상 건너뛰기).")
-    c1, c2 = st.columns([1, 2])
-    again = c2.selectbox("이미 설정한 영상 다시 설정", ["(선택 안 함)", *[v["id"] for v in videos if v not in todo]])
-    targets = [v for v in videos if v["id"] == again] if again != "(선택 안 함)" else todo
-    label = f"{again} 다시 설정" if again != "(선택 안 함)" else f"영역 설정 시작 ({len(todo)}개)"
-    if c1.button(label, type="primary", disabled=not targets or pipeline.running_job() is not None):
+    st.caption("사이드바의 '영역 설정 시작'을 누르면 이 PC 화면에 영역 지정 창이 영상마다 차례로 뜹니다. 창의 안내대로 찍고 마지막 화면에서 Enter로 저장하면 다음 영상으로 넘어갑니다(Esc = 그 영상 건너뛰기).")
+    c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
+    again = c1.selectbox("이미 설정한 영상 다시 설정", [NO_REDO, *[v["id"] for v in videos if v not in todo]])
+    redo = c2.button("다시 설정", disabled=again == NO_REDO or pipeline.running_job() is not None)
+    targets = [v for v in videos if v["id"] == again] if redo else todo if start else []
+    if targets:
         with st.status("영역 지정 창을 띄웁니다…", expanded=True) as box:
             saved = 0
             for i, v in enumerate(targets, 1):
@@ -77,12 +128,12 @@ def roi_section() -> None:
             box.update(label=f"영역 설정 끝: {saved}/{len(targets)}개 저장", state="complete")
 
 
-def analyze_section() -> None:
+def analyze_section(red_mode: str) -> None:
     st.subheader("③ 분석")
     ready = [v for v in pipeline.load_videos() if pipeline.video_status(v) == "영역 완료"]
     running = pipeline.running_job()
     st.caption("영역을 설정한 영상을 분석합니다(차량·보행자 검출과 추적이라 영상 길이만큼 이상 걸립니다). "
-               "메일 주소를 적으면 끝난 뒤 리포트 PDF를 보냅니다. 화면을 닫아도 분석은 계속됩니다.")
+               f"메일 주소를 적으면 끝난 뒤 리포트 PDF를 보냅니다. 화면을 닫아도 분석은 계속됩니다. 리포트는 사이드바의 분석 모드({red_mode})로 만듭니다.")
     email = st.text_input("리포트 받을 메일 (선택)", placeholder="name@example.com")
     if email and not re.fullmatch(EMAIL_PATTERN, email.strip()):
         st.caption(":red[메일 주소 형식이 아닙니다.]")
@@ -90,7 +141,7 @@ def analyze_section() -> None:
         st.caption(":orange[보내는 메일 계정 설정(.env의 SMTP_*)이 없어 메일은 보내지 못합니다. 리포트는 아래에서 받을 수 있습니다.]")
     bad_email = bool(email) and not re.fullmatch(EMAIL_PATTERN, email.strip())
     if st.button(f"분석 시작 ({len(ready)}개 영상)", type="primary", disabled=not ready or running is not None or bad_email):
-        pipeline.start_job(ready, email)
+        pipeline.start_job(ready, email, red_mode)
         st.rerun()
     if running is not None:
         progress(running)
@@ -135,11 +186,16 @@ def report_section() -> None:
                                    key=f"pdf-{job.name}")
 
 
-def analysis_page() -> None:
+def analysis_page(red_mode: str) -> None:
+    """red_mode = 사이드바에서 고른 분석 모드(보통·엄격). 분석 리포트를 이 모드로 만든다."""
+    everything = pipeline.load_videos()
+    videos = sidebar_filters(everything)
+    start = sidebar_status(videos)
     register_section()
+    video_table(videos, pipeline.duplicates(everything))
     st.divider()
-    roi_section()
+    roi_section(videos, start)
     st.divider()
-    analyze_section()
+    analyze_section(red_mode)
     st.divider()
     report_section()

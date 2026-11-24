@@ -153,7 +153,7 @@ class AppSmokeTest(unittest.TestCase):
             at = AppTest.from_function(run_app, args=(tmp, str(config)), default_timeout=30).run()
             at.selectbox[0].select("적색 미정지").run()
             normal = [m.value for m in at.metric]
-            at.selectbox[1].select("엄격").run()
+            at.sidebar.button_group[0].select("엄격").run()   # 사이드바의 분석 모드
         self.assertEqual(len(at.exception), 0)
         self.assertEqual(normal, ["60건", "20건", "33%"])
         self.assertEqual([m.value for m in at.metric], ["60건", "30건", "50%"])

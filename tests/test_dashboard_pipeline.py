@@ -81,6 +81,33 @@ class VideoListTest(Sandbox):
         self.assertEqual(pipeline.load_videos(), [])
         self.assertTrue(self.video.exists())
 
+    def test_weather_and_signal_condition_saved(self):
+        pipeline.add_video("강남역", "남→동", START, str(self.video), "우천", True)
+        v = pipeline.load_videos()[0]
+        self.assertEqual((v["weather"], v["right_turn_signal"]), ("우천", True))
+
+    def test_day_night_by_start_time(self):
+        """configs/eval.yaml의 day_hours 07:00~17:30(끝 제외)이 낮이다(기술서 11.1)."""
+        for hm, expected in (("06:59", "야간"), ("07:00", "낮"), ("17:29", "낮"), ("17:30", "야간")):
+            start = datetime.strptime(f"2026-11-22 {hm}", "%Y-%m-%d %H:%M")
+            self.assertEqual(pipeline.day_night(start), expected, hm)
+
+    def test_same_file_registered_twice_is_duplicate(self):
+        pipeline.add_video("강남역", "남→동", START, str(self.video))
+        self.assertEqual(pipeline.duplicates(pipeline.load_videos()), set())
+        pipeline.add_video("강남역", "동→북", START, str(self.video))   # 방향만 다르게 같은 파일을 또 넣음
+        self.assertEqual(pipeline.duplicates(pipeline.load_videos()), {"강남역-S_20261122_0800", "강남역-E_20261122_0800"})
+
+    def test_status_counts_include_last_job_errors(self):
+        pipeline.add_video("강남역", "남→동", START, str(self.video))
+        videos = pipeline.load_videos()
+        self.assertEqual(pipeline.status_counts(videos), {"분석 완료": 0, "영역 미설정": 1, "오류": 0})
+        job = pipeline.JOBS / "20261122_090000"
+        job.mkdir(parents=True)
+        pipeline.write_json(job / "status.json", {"state": "실패", "videos": {videos[0]["id"]: "실패"},
+                                                 "errors": {videos[0]["id"]: "track 단계 실패"}, "created": "x"})
+        self.assertEqual(pipeline.status_counts(videos)["오류"], 1)
+
 
 class SiteTest(Sandbox):
     def test_patch_site_puts_intersection_and_direction(self):
@@ -91,6 +118,14 @@ class SiteTest(Sandbox):
         cfg = yaml.safe_load(pipeline.site_path(v["id"]).read_text(encoding="utf-8"))
         self.assertEqual((cfg["site"], cfg["approach_from"]), ("강남역", "동→북"))
         self.assertEqual(pipeline.video_status(v), "영역 완료")
+
+    def test_patch_site_puts_signal_condition(self):
+        """우회전 전용 신호가 있다고 등록하면 site의 right_turn_signal이 켜져 적색 판정에서 빠진다(rules.rule)."""
+        pipeline.add_video("강남역", "동→북", START, str(self.video), right_turn_signal=True)
+        v = pipeline.load_videos()[0]
+        self.write_site(v["id"], signal=False)
+        pipeline.patch_site(v)
+        self.assertTrue(yaml.safe_load(pipeline.site_path(v["id"]).read_text(encoding="utf-8"))["right_turn_signal"])
 
     def test_roi_tool_esc_means_not_saved(self):
         pipeline.add_video("강남역", "남→동", START, str(self.video))
@@ -146,7 +181,7 @@ class JobTest(Sandbox):
         self.write_site(v["id"], signal)
         job = pipeline.JOBS / "20261122_090000"
         job.mkdir(parents=True)
-        pipeline.write_json(job / "job.json", {"videos": [v], "email": email})
+        pipeline.write_json(job / "job.json", {"videos": [v], "email": email, "red_mode": "보통"})
         pipeline.write_json(job / "status.json", {"state": "대기", "videos": {v["id"]: "대기"}, "errors": {}, "created": "x"})
         return job, v
 
@@ -266,9 +301,28 @@ class PageTest(Sandbox):
             at = AppTest.from_file(str(Path(app.__file__)), default_timeout=30).run()
             at.sidebar.radio[0].set_value("영상 분석").run()
         self.assertFalse(at.exception)
-        subheaders = [s.value for s in at.subheader]
-        self.assertEqual(subheaders, ["① 영상 등록", "② 영역 설정", "③ 분석", "④ 리포트"])
-        self.assertIn("영역 설정 시작 (1개)", [b.label for b in at.button])
+        self.assertEqual([s.value for s in at.main.subheader], ["① 영상 등록", "② 영역 설정", "③ 분석", "④ 리포트"])
+        self.assertEqual([s.value for s in at.sidebar.subheader], ["공통 필터", "이 화면: 처리 현황"])
+        self.assertIn("영역 설정 시작 (1개)", [b.label for b in at.sidebar.button])
+        self.assertEqual([t.value for t in at.sidebar.text], ["분석 완료 0", "영역 미설정 1", "오류 0"])
+
+    def test_register_marks_duplicate_and_filter_narrows_list(self):
+        from streamlit.testing.v1 import AppTest
+        pipeline.add_video("강남역", "남→동", START, str(self.video), "우천")
+        with patch("dashboard.db.configured", return_value=False):
+            at = AppTest.from_file(str(Path(app.__file__)), default_timeout=30).run()
+            at.sidebar.radio[0].set_value("영상 분석").run()
+            # 같은 파일을 방향만 바꿔 화면에서 한 번 더 넣는다(날씨는 기본값 맑음) → 두 줄 모두 "중복"
+            next(s for s in at.main.selectbox if s.label.startswith("우회전 방향")).select("동→북").run()
+            next(t for t in at.main.text_input if t.label == "영상 파일 경로").set_value(str(self.video)).run()
+            next(b for b in at.main.button if b.label == "목록에 추가").click().run()
+            both = [m.value for m in at.main.markdown if "badge" in m.value]
+            next(g for g in at.sidebar.button_group if g.label == "날씨").select("우천").run()
+            rainy = [m.value for m in at.main.markdown if "badge" in m.value]
+        self.assertFalse(at.exception)
+        self.assertEqual(len(pipeline.load_videos()), 2)
+        self.assertEqual(both, [":orange-badge[영역 미설정] :red-badge[중복]"] * 2)
+        self.assertEqual(rainy, [":orange-badge[영역 미설정] :red-badge[중복]"])   # 우천으로 등록한 한 줄만 남는다
 
 
 if __name__ == "__main__":

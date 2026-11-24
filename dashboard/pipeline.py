@@ -4,7 +4,8 @@
 영상은 사용자가 적은 PC 경로에 그대로 둔다(복사하지 않음). 파이프라인은 파일 이름 {교차로}_{YYYYMMDD}_{HHMM}에서
 촬영 시각을 읽으므로(rules.rule), 영상마다 이름 "{교차로}-{방향 코드}_{YYYYMMDD}_{HHMM}"(video id)을 정하고
 track·color가 원래 영상 이름으로 낸 CSV를 이 이름으로 바꿔 둔다. 그 뒤 단계(events·features·rules)는 CSV 이름을 따라간다.
-site 파일은 configs/site_<video id>.yaml(영상마다 1개)이고, 영역 설정 뒤 site = 교차로 이름, approach_from = 우회전 방향을 넣는다.
+site 파일은 configs/site_<video id>.yaml(영상마다 1개)이고, 영역 설정 뒤 site = 교차로 이름, approach_from = 우회전 방향,
+right_turn_signal = 등록할 때 고른 신호 조건을 넣는다. 날씨는 목록에만 적고, 낮·야간은 촬영 시작 시각으로 계산한다(기술서 11.1).
 
 분석 작업은 대시보드와 따로 도는 프로세스(python -m dashboard.pipeline run <작업 폴더>)라 화면을 새로 고쳐도 계속된다.
 한 번에 하나만 돈다(GPU). 작업 폴더(data/dashboard/jobs/<시각>)에 job.json(영상·메일), status.json(진행), log.txt, report.pdf.
@@ -32,6 +33,9 @@ OUT = ROOT / "outputs"
 EVAL_CONFIG = ROOT / "configs" / "eval.yaml"
 # 우회전 방향(들어오는 쪽 → 꺾어 나가는 쪽): video id에 넣는 코드
 DIRECTIONS = {"남→동": "S", "동→북": "E", "북→서": "N", "서→남": "W"}
+WEATHERS = ["맑음", "우천"]
+# 신호 조건(표시 이름: site 파일의 right_turn_signal). 우회전 전용 신호가 있으면 적색 정지 판정에서 뺀다(기술서 2.3)
+SIGNALS = {"직진 신호만": False, "우회전 전용 신호 있음 (정지선 제외)": True}
 NAME_PATTERN = r"[^\s_/\\:*?\"<>|.]+"  # 교차로 이름: 파일 이름에 들어가므로 공백·밑줄·경로 문자 없이
 STEPS = ["track", "events", "signal", "features", "rules"]  # 화면에 보여 줄 단계 이름(signal은 신호등 영역이 있을 때만)
 TRACK_LINE = r"추적 (\d+)/(\d+)프레임"  # tracking.track이 1%마다 찍는 진행 줄
@@ -64,7 +68,8 @@ def site_path(vid: str) -> Path:
     return ROOT / "configs" / f"site_{vid}.yaml"
 
 
-def add_video(intersection: str, direction: str, start: datetime, source: str) -> str:
+def add_video(intersection: str, direction: str, start: datetime, source: str,
+              weather: str = WEATHERS[0], right_turn_signal: bool = False) -> str:
     """영상을 목록에 넣는다. 문제가 있으면 이유를 돌려주고 넣지 않는다(문제없으면 "")."""
     intersection, source = intersection.strip(), source.strip().strip('"')
     if not re.fullmatch(NAME_PATTERN, intersection):
@@ -83,7 +88,8 @@ def add_video(intersection: str, direction: str, start: datetime, source: str) -
     if any(v["id"] == vid for v in videos):
         return f"같은 교차로·방향·촬영 시각의 영상이 이미 있습니다: {vid}"
     videos.append({"id": vid, "intersection": intersection, "direction": direction,
-                   "start": start.strftime("%Y-%m-%d %H:%M"), "source": str(Path(source).resolve())})
+                   "start": start.strftime("%Y-%m-%d %H:%M"), "source": str(Path(source).resolve()),
+                   "weather": weather, "right_turn_signal": right_turn_signal})
     save_videos(videos)
     return ""
 
@@ -97,6 +103,27 @@ def video_status(video: dict) -> str:
     if (OUT / "judged" / f"{video['id']}.csv").exists():
         return "분석 완료"
     return "영역 완료" if site_path(video["id"]).exists() else "영역 미설정"
+
+
+def day_night(start: datetime) -> str:
+    """촬영 시작 시각이 configs/eval.yaml의 day_hours 사이(끝 제외)면 "낮", 그 밖은 "야간"(기술서 11.1)."""
+    day_from, day_until = yaml.safe_load(EVAL_CONFIG.read_text(encoding="utf-8"))["day_hours"]
+    return "낮" if day_from <= f"{start:%H:%M}" < day_until else "야간"
+
+
+def duplicates(videos: list[dict]) -> set[str]:
+    """같은 파일 이름이 두 번 이상 등록된 영상의 id(교차로·방향·시각을 다르게 적어 같은 영상을 또 넣은 경우)."""
+    names = [Path(v["source"]).name for v in videos]
+    return {v["id"] for v, name in zip(videos, names) if names.count(name) > 1}
+
+
+def status_counts(videos: list[dict]) -> dict[str, int]:
+    """처리 현황: 분석 완료·영역 미설정 영상 수와, 가장 최근 분석에서 실패한 영상 수."""
+    states = [video_status(v) for v in videos]
+    jobs = list_jobs()
+    failed = set(jobs[0][1].get("errors", {})) if jobs else set()
+    return {"분석 완료": states.count("분석 완료"), "영역 미설정": states.count("영역 미설정"),
+            "오류": sum(v["id"] in failed for v in videos)}
 
 
 # ---------- 영역 설정 ----------
@@ -114,10 +141,13 @@ def run_roi_tool(video: dict) -> bool:
 
 
 def patch_site(video: dict) -> None:
-    """roi_tool은 site 값을 영상 파일 이름에서 가져오므로, 대시보드에 적은 교차로 이름과 우회전 방향으로 바꾼다."""
+    """roi_tool은 site 값을 영상 파일 이름에서 가져오므로, 대시보드에 적은 교차로 이름과 우회전 방향으로 바꾼다.
+    등록할 때 고른 신호 조건도 넣는다(예전에 등록해 그 값이 없는 영상은 roi_tool 값 그대로)."""
     site = site_path(video["id"])
     cfg = yaml.safe_load(site.read_text(encoding="utf-8"))
     cfg["site"], cfg["approach_from"] = video["intersection"], video["direction"]
+    if "right_turn_signal" in video:
+        cfg["right_turn_signal"] = video["right_turn_signal"]
     with open(site, "w", encoding="utf-8") as f:
         f.write(f"# tracking.roi_tool 로 생성, 대시보드에서 교차로·방향 반영: {Path(video['source']).name}\n")
         yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False, default_flow_style=None)
@@ -125,11 +155,11 @@ def patch_site(video: dict) -> None:
 
 # ---------- 분석 작업 ----------
 
-def start_job(videos: list[dict], email: str) -> Path:
-    """분석 작업 폴더를 만들고 대시보드와 따로 도는 프로세스로 시작한다."""
+def start_job(videos: list[dict], email: str, red_mode: str = "보통") -> Path:
+    """분석 작업 폴더를 만들고 대시보드와 따로 도는 프로세스로 시작한다. red_mode = 리포트의 적색 판정 모드."""
     job = JOBS / datetime.now().strftime("%Y%m%d_%H%M%S")
     job.mkdir(parents=True)
-    write_json(job / "job.json", {"videos": videos, "email": email.strip()})
+    write_json(job / "job.json", {"videos": videos, "email": email.strip(), "red_mode": red_mode})
     write_json(job / "status.json", {"state": "대기", "videos": {v["id"]: "대기" for v in videos}, "errors": {},
                                     "created": datetime.now().strftime("%Y-%m-%d %H:%M")})
     flags = {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" \
@@ -269,7 +299,7 @@ def run_job(job: Path) -> None:
         min_n = yaml.safe_load(EVAL_CONFIG.read_text(encoding="utf-8"))["min_n_reference"]
         done = {v["id"]: v["intersection"] for v in spec["videos"] if v["id"] not in errors}
         report = report_pdf.build_report(pd.concat(judged, ignore_index=True), job / "report.pdf", min_n,
-                                         f"분석 리포트 ({len(judged)}개 영상)", done)
+                                         f"분석 리포트 ({len(judged)}개 영상)", done, red_mode=spec["red_mode"])
     mail = "보내지 않음(메일 주소 없음)"
     if spec["email"] and report:
         if not mailer.configured():
