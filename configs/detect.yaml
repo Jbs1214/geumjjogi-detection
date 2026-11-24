@@ -1,5 +1,6 @@
 # 검출·추적 설정 (담당: 장범수)
-model: yolo26s.pt        # 11.12 yolo11n.pt에서 변경 (docs/experiments.md 261112). 4.2 검증 프레임 비교 후 다시 고름
+model: weights/det_yolo26s_v2_261119.pt  # 최종 모델(11.24): YOLO26s 5종 미세조정. Drive에서 받아 weights/에 둔다 (docs/weights.md, docs/experiments.md 261124). 이전: yolo26s.pt(사전학습)
+blur_model: yolo26s.pt   # 블러용 검출(eval.blur)은 사전학습 모델. 위 모델은 오토바이 운전자를 오토바이 박스에 넣어 운전자 상반신이 블러되지 않는다 (기술서 11.1 검출 모델 비교)
 conf: 0.25               # 검출 시험용. 추적(tracking.track)에는 넘기지 않는다: ByteTrack이 0.1~0.25 박스로 가려진 트랙을 잇고, 새 트랙은 bytetrack.yaml의 new_track_thresh(0.25)부터 시작
 imgsz: 1920              # 영상 원본 폭. 640에서는 먼 횡단보도 위 보행자가 거의 안 잡힘 (docs/experiments.md 261111)
 tracker: bytetrack.yaml  # ultralytics 내장

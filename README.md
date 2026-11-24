@@ -19,6 +19,7 @@ conda activate geumjjogi-detection
 python check_env.py                     # 모두 [OK]면 성공
 ```
 
+- 검출 가중치 `det_yolo26s_v2_261119.pt`는 Google Drive `weights/`에서 받아 레포의 `weights/`에 둡니다(`configs/detect.yaml`의 `model`, 기록은 `docs/weights.md`). 블러용 `yolo26s.pt`는 처음 실행할 때 자동으로 받습니다.
 - 다른 사람이 `environment.yml`·`requirements.txt`를 바꾼 뒤에는 `conda env update -f environment.yml --prune`으로 맞춥니다.
 - 학원 서버(L40S 46GB)도 cu118 빌드를 그대로 씁니다. 서버에서 `import cv2`가 `libGL.so.1` 오류를 내면 `opencv-python`을 지우고 같은 버전의 `opencv-python-headless`를 설치합니다.
 
