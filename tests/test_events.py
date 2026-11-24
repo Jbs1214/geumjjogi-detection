@@ -69,7 +69,7 @@ class FindEventsTest(unittest.TestCase):
         self.assertEqual(list(find_events(df, APPROACH, EXIT)["track_id"]), [2, 1])
 
 
-DETECT = {"link_gap_s": 3.0, "link_dist_box": 2.0, "dedup_gap_s": 2.0, "dedup_contain_min": 0.8, "dedup_frames_min": 0.8}
+DETECT = {"link_gap_s": 3.0, "link_dist_box": 2.0, "merge_size_min": 0.5, "dedup_gap_s": 2.0, "dedup_contain_min": 0.8, "dedup_frames_min": 0.8}
 
 
 def dedup(df, frames_min=0.8):
@@ -145,6 +145,16 @@ class LinkBrokenTest(unittest.TestCase):
 
     def test_too_far(self):
         self.assertTrue(linked(broken(b_start=(150, 125))).empty)   # 35 px > 20 px
+
+    def test_very_different_size_not_linked(self):
+        # 진입로에서 끝난 큰 오검출 박스(폭 100·높이 60 → 반경 200 px)와 폭 10·높이 20 차: 크기 조건이 있으면 이어 보지 않는다
+        df = pd.concat([path(1, A_PART, w=100, h=60), path(2, B_PART, t0=1.1)])
+        self.assertEqual(list(linked(df)["track_id"]), [2])
+        self.assertTrue(find_events(df, APPROACH, EXIT, link_gap_s=3.0, link_dist_box=2.0, size_min=0.5).empty)
+
+    def test_similar_size_linked_with_size_check(self):
+        ev = find_events(broken(), APPROACH, EXIT, link_gap_s=3.0, link_dist_box=2.0, size_min=0.5)
+        self.assertEqual(list(ev["track_id"]), [2])
 
     def test_other_class_not_linked(self):
         self.assertTrue(linked(broken(cls_b="motorcycle")).empty)
