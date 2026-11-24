@@ -79,8 +79,10 @@ class DetectBoxesTest(unittest.TestCase):
                 writer = cv2.VideoWriter(video, cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (64, 48))
                 writer.write(np.zeros((48, 64, 3), np.uint8))
                 writer.release()
-                with mock.patch("eval.blur.load_model", return_value=model):
-                    out = detect_boxes(video, {"model": "x.pt", "class_map": class_map, "imgsz": 64}, 0.1)
+                with mock.patch("eval.blur.load_model", return_value=model) as load:
+                    cfg = {"model": "track.pt", "blur_model": "x.pt", "class_map": class_map, "imgsz": 64}
+                    out = detect_boxes(video, cfg, 0.1)
+            load.assert_called_once_with("x.pt")  # 블러는 추적용 model이 아니라 blur_model로 검출한다
             self.assertEqual(out, [[("pedestrian", 1.0, 2.0, 3.0, 4.0), ("vehicle", 5.0, 6.0, 7.0, 8.0)]])
 
 

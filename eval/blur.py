@@ -27,7 +27,7 @@ def detect_boxes(
     """start~end(끝 제외) 프레임을 검출해 프레임별 박스 목록을 돌려준다. end가 없으면 영상 끝까지.
     추적을 쓰지 않아 운전자도 포함된다. 클래스는 class_map을 거친 프로젝트 클래스로 돌려준다
     (모델의 클래스 이름이 person이든 pedestrian이든 사람은 pedestrian이 되어 박스 전체가 블러된다)."""
-    model = load_model(detect_cfg["model"])
+    model = load_model(detect_cfg["blur_model"])  # 추적용 model이 아님: 미세조정 모델은 운전자를 오토바이 박스에 넣어 사람 박스가 없다
     class_map = detect_cfg["class_map"]
     class_ids = [i for i, name in model.names.items() if name in class_map]
     cap = cv2.VideoCapture(video)
