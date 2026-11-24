@@ -37,10 +37,17 @@ def exit_area(site: dict) -> list:
     return cw.get("area_px") or cw["corners_px"]
 
 
+def size_ratio(w1: float, h1: float, w2: float, h2: float) -> float:
+    """두 박스 크기가 비슷한 정도: 폭 비와 높이 비(작은 쪽 ÷ 큰 쪽) 중 큰 값.
+    화면 끝이나 가림으로 한 변만 줄어든 박스는 1에 가깝고, 전혀 다른 물체(플래카드 오검출과 차)는 0에 가깝다(기술서 11.1)."""
+    return max(min(w1, w2) / max(w1, w2), min(h1, h2) / max(h1, h2))
+
+
 def link_broken(v: pd.DataFrame, in_a: np.ndarray, in_e: np.ndarray, events: pd.Index,
-                gap_s: float, dist_box: float) -> pd.DataFrame:
+                gap_s: float, dist_box: float, size_min: float = 0.0) -> pd.DataFrame:
     """진입로를 지났지만 출구에 안 간 트랙 A와, 진입로 없이 출구에 들어간 트랙 B가 끊긴 같은 차면 B를 우회전으로 본다.
     B는 A가 끝난 뒤 gap_s 안에, A 마지막 박스 폭 × dist_box 픽셀 안에서 시작해야 한다(같은 cls, 1:1, 가까운 쌍부터).
+    A 마지막 박스와 B 첫 박스의 size_ratio가 size_min 미만이면 다른 물체로 보고 잇지 않는다.
     정지선 근처는 출구 사각형에서 멀어 미터 거리가 부풀므로 픽셀로 본다.
     돌려주는 값: B track_id 인덱스, t_enter_s(출구 첫 진입 t_s)·link_track_id(A). features가 A 경로의 횡단보도도 본다."""
     g = v.sort_values("frame").groupby("track_id")
@@ -58,7 +65,8 @@ def link_broken(v: pd.DataFrame, in_a: np.ndarray, in_e: np.ndarray, events: pd.
             if la["cls"] != fb["cls"] or not la["t_s"] <= fb["t_s"] <= la["t_s"] + gap_s:
                 continue
             d = np.hypot((la["x1"] + la["x2"]) / 2 - bx, la["y2"] - by)
-            if d <= dist_box * (la["x2"] - la["x1"]):
+            wa, wb = la["x2"] - la["x1"], fb["x2"] - fb["x1"]
+            if d <= dist_box * wa and size_ratio(wa, la["y2"] - la["y1"], wb, fb["y2"] - fb["y1"]) >= size_min:
                 pairs.append((d, a, b))
     used_a, linked = set(), {}
     for d, a, b in sorted(pairs):
@@ -70,7 +78,7 @@ def link_broken(v: pd.DataFrame, in_a: np.ndarray, in_e: np.ndarray, events: pd.
 
 
 def find_events(df: pd.DataFrame, approach: list, exit_poly: list,
-                link_gap_s: float = 0.0, link_dist_box: float = 0.0) -> pd.DataFrame:
+                link_gap_s: float = 0.0, link_dist_box: float = 0.0, size_min: float = 0.0) -> pd.DataFrame:
     """차량·오토바이 트랙마다 진입로 ROI 첫 프레임 이후(같은 프레임 포함) 출구 영역 첫 프레임을 찾는다.
     출구를 먼저 지나고 진입로에 들어간 트랙(역방향)은 이벤트가 아니다. link_gap_s > 0이면 끊긴 트랙도 잇는다(link_broken).
     t_enter_s 순으로 돌려준다."""
@@ -81,7 +89,7 @@ def find_events(df: pd.DataFrame, approach: list, exit_poly: list,
     e = v[in_e & (v["frame"] >= v["track_id"].map(first_a))]  # 진입로를 안 지난 트랙은 NaN과 비교돼 빠진다
     out = e.groupby("track_id").agg(cls=("cls", "first"), t_enter_s=("t_s", "min"))
     if link_gap_s > 0:
-        linked = link_broken(v, in_a, in_e, out.index, link_gap_s, link_dist_box)
+        linked = link_broken(v, in_a, in_e, out.index, link_gap_s, link_dist_box, size_min)
         cls = v.groupby("track_id")["cls"].first()
         out = pd.concat([out, linked.assign(cls=linked.index.map(cls))])
     out["link_track_id"] = out.get("link_track_id", pd.Series(dtype="Int64")).astype("Int64")  # 이어 보지 않은 이벤트는 비움
@@ -154,7 +162,7 @@ def extract_events(tracks: str, site: str, config: str = "configs/detect.yaml", 
     with open(config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     df = pd.read_csv(tracks)
-    found = find_events(df, s["approach_roi_px"], exit_area(s), cfg["link_gap_s"], cfg["link_dist_box"])
+    found = find_events(df, s["approach_roi_px"], exit_area(s), cfg["link_gap_s"], cfg["link_dist_box"], cfg["merge_size_min"])
     ev = drop_contained(df, found, cfg["dedup_gap_s"], cfg["dedup_contain_min"], cfg["dedup_frames_min"])
     line = s.get("stop_line_px")
     stop = stopline_times(df, ev, line, np.mean(exit_area(s), axis=0)) if line and np.any(line) else np.nan  # 정지선을 안 찍었으면 비움

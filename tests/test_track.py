@@ -76,6 +76,18 @@ class MergeTracksTest(unittest.TestCase):
         far = self.merge(rows(1, "vehicle", 0, 3, 0, 30), rows(2, "vehicle", 4, 5, 60, 70))
         self.assertEqual((ids(near), ids(far)), ([1], [1, 2]))
 
+    def test_very_different_size_not_merged(self):
+        # 폭 400·높이 200인 오검출 박스(플래카드) 뒤 반경 안에서 시작한 폭 40·높이 20 차: 크기 조건이 없으면 잇고, 있으면 안 잇는다
+        big, car = rows(1, "vehicle", 0, 3, box=(0, 0, 400, 200)), rows(2, "vehicle", 4, 5, box=(300, 280, 340, 300))
+        df = pd.concat([big, car], ignore_index=True)
+        self.assertEqual(ids(merge_tracks(df, 2.0, 1.0)), [1])
+        self.assertEqual(ids(merge_tracks(df, 2.0, 1.0, size_min=0.5)), [1, 2])
+
+    def test_one_side_similar_still_merged(self):
+        # 화면 끝에서 들어오는 차: 폭만 좁은 조각(10x40) → 온전한 박스(40x40). 높이가 같아 크기 조건을 넘는다
+        sliver, full = rows(1, "vehicle", 0, 3, box=(0, 0, 10, 40)), rows(2, "vehicle", 3.2, 5, box=(-10, 0, 30, 40))
+        self.assertEqual(ids(merge_tracks(pd.concat([sliver, full], ignore_index=True), 2.0, 1.0, size_min=0.5)), [1])
+
     def test_other_class_not_merged(self):
         df = self.merge(rows(1, "vehicle", 0, 3, 0, 30), rows(2, "pedestrian", 4, 5, 30, 30))
         self.assertEqual(ids(df), [1, 2])

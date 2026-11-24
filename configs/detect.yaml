@@ -13,6 +13,7 @@ ped_conf_min: 0.25       # 1단계 보행자 집계(features.build)에서 신뢰
 min_track_s: 1.0         # 이보다 짧은 트랙은 지움
 merge_gap_s: 2.0         # 끊긴 같은 종류 트랙을 이어 붙이는 최대 시간 간격
 merge_dist_box: 1.0      # 이어 붙이는 최대 거리 = 앞 트랙 마지막 박스 폭 × 이 값 (픽셀, 기술서 11.1 좌표 기준. 이전 1.5 m)
+merge_size_min: 0.5      # 이을 두 박스(앞 트랙 마지막·뒤 트랙 첫)의 폭 비·높이 비(작은 쪽 ÷ 큰 쪽) 중 큰 값이 이 값 미만이면 잇지 않음(크게 잘못 잡힌 박스가 다른 차와 이어지는 것을 막음). 아래 link 이어 보기에도 씀. 학습 영상(10.31) 분포로 정함, 값은 측정 전 고정 (기술서 11.1, docs/experiments.md 261123). 0이면 끔
 merge_overlap_s: 0.5     # 앞 트랙이 끝나기 전 이 시간 안에 시작한 트랙도 이어 붙임 (시간이 겹쳐 ID가 바뀐 경우)
 merge_overlap_iou: 0.5   # 겹친 프레임에서 두 박스 평균 IoU가 이 값 이상일 때만 (줄 선 다른 차·옆 사람을 잇지 않게)
 merge_overlap_classes: [vehicle]  # 겹침 이어 붙이기를 쓰는 클래스(vehicle·motorcycle·pedestrian). 차량만: 영상 전체에서 실제 우회전 +1(9:03)·이벤트 오추출 0, 트랙 오병합 1/6은 이벤트 영향 없음 (docs/experiments.md 261111). pedestrian은 켤 때 peds_lost 영향을 따로 잰다
