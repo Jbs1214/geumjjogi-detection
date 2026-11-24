@@ -88,11 +88,13 @@ streamlit run dashboard/app.py                 # 로그인 화면부터 뜬다
 
 ```
 SMTP_HOST=smtp.gmail.com
-SMTP_PORT=465            # 465 = SSL, 587 등 = STARTTLS
+SMTP_PORT=465
 SMTP_USER=<보내는 계정>
 SMTP_PASSWORD=<앱 비밀번호>
 SMTP_FROM=<보내는 사람 주소, 생략하면 SMTP_USER>
 ```
+
+포트 465는 SSL, 587 등 그 밖의 포트는 STARTTLS로 접속한다. `.env`는 줄 끝 주석을 지원하지 않으므로 값 뒤에 `#` 설명이나 따옴표를 붙이지 않는다(붙이면 그 글자까지 값으로 읽혀 발송이 실패한다). Gmail은 계정 비밀번호 대신 앱 비밀번호(2단계 인증을 켠 뒤 발급)를 넣는다.
 
 ## 폴더 구조
 

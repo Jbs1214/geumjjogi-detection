@@ -141,6 +141,23 @@ class AppSmokeTest(unittest.TestCase):
         self.assertEqual([m.value for m in at.metric], ["83건", "33건", "40%", "50건", "20건", "40%"])
         self.assertEqual(len(at.dataframe), 2)
 
+    def test_strict_mode_counts_minor_stop_as_violation(self):
+        """경미 정지 10건: 판정 대상은 두 모드 모두 60, 위반 의심은 보통 20 → 엄격 30 (기술서 3.1)."""
+        judged = make_judged().assign(
+            red_result=["not_stopped"] * 20 + ["stopped"] * 30 + ["stopped_minor"] * 10 + ["na"] * 23
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            judged.to_csv(Path(tmp) / "all.csv", index=False, encoding="utf-8-sig")
+            config = Path(tmp) / "eval.yaml"
+            config.write_text(yaml.safe_dump({"min_n_reference": 30}), encoding="utf-8")
+            at = AppTest.from_function(run_app, args=(tmp, str(config)), default_timeout=30).run()
+            at.selectbox[0].select("적색 미정지").run()
+            normal = [m.value for m in at.metric]
+            at.selectbox[1].select("엄격").run()
+        self.assertEqual(len(at.exception), 0)
+        self.assertEqual(normal, ["60건", "20건", "33%"])
+        self.assertEqual([m.value for m in at.metric], ["60건", "30건", "50%"])
+
     def test_red_kind_without_red_judgment(self):
         with tempfile.TemporaryDirectory() as tmp:
             make_judged().to_csv(Path(tmp) / "all.csv", index=False, encoding="utf-8-sig")

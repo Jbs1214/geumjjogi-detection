@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from eval.report import evaluate, rate_table, report, wilson_ci
+from eval.report import apply_red_mode, evaluate, rate_table, report, wilson_ci
 
 CFG = {"match_window_s": 2.0, "min_n_reference": 30, "bootstrap_n": 100}
 
@@ -65,6 +65,16 @@ class RateTableTest(unittest.TestCase):
         self.assertEqual(table.loc["08–09시", "n_not_stopped"], 10)
         self.assertAlmostEqual(table.loc["08–09시", "violation_rate"], 1 / 3)
         self.assertEqual(table.loc["09–10시", "n_target"], 1)
+
+    def test_red_mode_moves_minor_stop_only(self):
+        judged = make_judged().assign(
+            red_result=["not_stopped"] * 10 + ["stopped"] * 20 + ["stopped_minor"] * 10 + ["na"] * 3
+        )
+        # 경미 정지 10건: 판정 대상은 두 모드가 같고(40), 엄격 모드에서만 위반 의심으로 센다 (기술서 3.1)
+        for mode, bad in [("보통", 10), ("엄격", 20)]:
+            row = rate_table(apply_red_mode(judged, mode), 30, "red_result", "stopped", "not_stopped").set_index("slot").loc["08–09시"]
+            self.assertEqual((row["n_target"], row["n_not_stopped"]), (40, bad))
+        self.assertNotIn("red_result", apply_red_mode(make_judged()).columns)  # 2단계 판정 전 표는 그대로
 
 
 class ReportFileTest(unittest.TestCase):
