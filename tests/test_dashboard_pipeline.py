@@ -314,9 +314,9 @@ class PageTest(Sandbox):
             at = AppTest.from_file(str(Path(app.__file__)), default_timeout=30).run()
             at.sidebar.radio[0].set_value("영상 분석").run()
         self.assertFalse(at.exception)
-        self.assertEqual([s.value for s in at.main.subheader], ["① 영상 등록", "② 영역 설정", "③ 분석", "④ 리포트"])
-        self.assertEqual([s.value for s in at.sidebar.subheader], ["공통 필터", "이 화면: 처리 현황"])
-        self.assertIn("영역 설정 시작 (1개)", [b.label for b in at.sidebar.button])
+        self.assertEqual([s.value for s in at.main.subheader], ["1. 영상 등록", "2. 영역 설정", "3. 분석", "4. 보고서"])
+        self.assertEqual([s.value for s in at.sidebar.subheader], ["조회 조건", "처리 현황"])
+        self.assertIn("영역 설정 시작 (1개)", [b.label for b in at.main.button])
         self.assertEqual([t.value for t in at.sidebar.text], ["분석 완료 0", "영역 미설정 1", "오류 0"])
 
     def test_register_marks_duplicate_and_filter_narrows_list(self):

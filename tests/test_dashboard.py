@@ -158,6 +158,24 @@ class AppSmokeTest(unittest.TestCase):
         self.assertEqual(normal, ["60건", "20건", "33%"])
         self.assertEqual([m.value for m in at.metric], ["60건", "30건", "50%"])
 
+    def test_overall_priority_matches_report(self):
+        """종합 단속 우선 검토 시간대 = 보고서 PDF와 같은 계산(report_pdf.overall_slots). 태그는 글자로만 나간다."""
+        rows = [("<b>A</b>", "08–09시", 20, 5), ("B", "18–19시", 10, 30), ("C", "12–13시", 15, 20)]  # 40건 중 미양보, 미정지
+        judged = pd.concat([pd.DataFrame({
+            "video": "v", "event_id": range(40), "intersection": site, "wall_time": "2026-11-16 08:00:00", "slot": slot, "clip": "",
+            "ped_result": ["no_yield"] * ped + ["yield"] * (40 - ped),
+            "red_result": ["not_stopped"] * red + ["stopped"] * (40 - red)}) for site, slot, ped, red in rows])
+        with tempfile.TemporaryDirectory() as tmp:
+            judged.to_csv(Path(tmp) / "all.csv", index=False, encoding="utf-8-sig")
+            config = Path(tmp) / "eval.yaml"
+            config.write_text(yaml.safe_dump({"min_n_reference": 30}), encoding="utf-8")
+            at = AppTest.from_function(run_app, args=(tmp, str(config)), default_timeout=30).run()
+        self.assertEqual(len(at.exception), 0)
+        body = at.get("html")[0].proto.body
+        order = [body.index(text) for text in ("&lt;b&gt;A&lt;/b&gt;", "<td>C</td>", "<td>B</td>")]
+        self.assertEqual(order, sorted(order))  # 순위 합은 모두 4 → 미양보 위반율이 높은 순 A, C, B
+        self.assertNotIn("<b>A</b>", body)
+
     def test_red_kind_without_red_judgment(self):
         with tempfile.TemporaryDirectory() as tmp:
             make_judged().to_csv(Path(tmp) / "all.csv", index=False, encoding="utf-8-sig")
@@ -167,7 +185,7 @@ class AppSmokeTest(unittest.TestCase):
             at.selectbox[0].select("적색 미정지").run()
         self.assertEqual(len(at.exception), 0)
         self.assertEqual(len(at.metric), 0)
-        self.assertEqual(at.info[0].value, "적색 미정지 판정 결과가 아직 없다.")
+        self.assertEqual(at.info[-1].value, "적색 미정지 판정 결과가 없습니다.")
 
     def test_renders_without_data(self):
         with tempfile.TemporaryDirectory() as tmp:
