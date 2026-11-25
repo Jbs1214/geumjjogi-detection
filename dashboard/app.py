@@ -186,7 +186,7 @@ def report_button(filtered: pd.DataFrame, min_n: int, red_mode: str) -> None:
     c1, c2 = st.columns([1, 3], vertical_alignment="center")
     if c1.button("리포트 PDF 만들기", help="지금까지 쌓인 판정 중 현재 필터(교차로·기간)에 맞는 것으로 만듭니다"):
         out = Path("outputs/reports") / f"report_{pd.Timestamp.now():%Y%m%d_%H%M%S}.pdf"
-        st.session_state["report-pdf"] = str(report_pdf.build_report(filtered, out, min_n, "우회전 위반 의심 누적 리포트", red_mode=red_mode))
+        st.session_state["report-pdf"] = str(report_pdf.build_report(filtered, out, min_n, "우회전 차량 위반 의심 누적 현황 보고", red_mode=red_mode))
     pdf = Path(st.session_state.get("report-pdf", ""))
     if pdf.is_file():
         c2.download_button(f"내려받기 ({pdf.name})", pdf.read_bytes(), pdf.name, "application/pdf")

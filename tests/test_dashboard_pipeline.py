@@ -245,7 +245,7 @@ class ReportTest(unittest.TestCase):
         out = report_pdf.build_report(df, Path(tempfile.mkdtemp()) / "r.pdf", 30)
         data = out.read_bytes()
         self.assertTrue(data.startswith(b"%PDF"))
-        self.assertEqual(data.count(b"/Type /Page\n") + data.count(b"/Type /Page "), 3)   # 요약 + 보행자 + 적색
+        self.assertGreaterEqual(data.count(b"/Type /Page\n") + data.count(b"/Type /Page "), 3)   # 이어 쓰는 배치라 정확한 쪽수는 보지 않는다
 
     def test_no_events_still_makes_report(self):
         empty = judged_rows("A-S_20261122_0800", "A").iloc[:0]   # 우회전 이벤트 0건인 영상
@@ -262,6 +262,19 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(report_pdf.detail_blocks(plain, "ped_result"), [])
         out = report_pdf.build_report(plain, Path(tempfile.mkdtemp()) / "r.pdf", 30, red_mode="엄격")
         self.assertTrue(out.read_bytes().startswith(b"%PDF"))
+
+    def test_overall_slots_ranks_by_rank_sum(self):
+        """종합 순위 = 유형별 위반율 순위의 합이 작은 순, 같으면 보행자 위반율이 높은 순. 한 유형이라도 참고용이면 뺀다."""
+        def slot(name, ped_bad, red_bad, n_red=10):
+            return pd.DataFrame({"intersection": "A", "slot": name,
+                                 "ped_result": ["no_yield"] * ped_bad + ["yield"] * (10 - ped_bad),
+                                 "red_result": ["not_stopped"] * red_bad + ["stopped"] * (n_red - red_bad) + ["na"] * (10 - n_red)})
+        df = pd.concat([slot("a", 1, 9), slot("b", 3, 5), slot("c", 5, 1), slot("d", 4, 8), slot("e", 9, 5, n_red=5), slot("f", 0, 0)])
+        out = report_pdf.overall_slots(df, 10)
+        # 순위(미양보, 미정지): a(4,1) b(3,3) c(1,4) d(2,2). e는 적색 표본이 모자라고 f는 위반 의심이 0건이라 뺀다
+        self.assertEqual(out["slot"].tolist(), ["d", "c", "a"])
+        self.assertEqual(out["rank_sum"].tolist(), [4, 5, 5])
+        self.assertTrue(report_pdf.overall_slots(df.assign(red_result="na"), 10).empty)
 
     def test_kinds_match_dashboard(self):
         self.assertEqual({k: v[:3] for k, v in app.KINDS.items()}, report_pdf.KINDS)

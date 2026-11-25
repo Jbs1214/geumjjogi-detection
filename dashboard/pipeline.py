@@ -299,7 +299,7 @@ def run_job(job: Path) -> None:
         min_n = yaml.safe_load(EVAL_CONFIG.read_text(encoding="utf-8"))["min_n_reference"]
         done = {v["id"]: v["intersection"] for v in spec["videos"] if v["id"] not in errors}
         report = report_pdf.build_report(pd.concat(judged, ignore_index=True), job / "report.pdf", min_n,
-                                         f"분석 리포트 ({len(judged)}개 영상)", done, red_mode=spec["red_mode"])
+                                         videos=done, red_mode=spec["red_mode"])
     mail = "보내지 않음(메일 주소 없음)"
     if spec["email"] and report:
         if not mailer.configured():
