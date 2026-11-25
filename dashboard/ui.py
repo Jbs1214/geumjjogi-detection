@@ -110,13 +110,20 @@ def page_title(title: str, *path: str) -> None:
     st.markdown(f'<div class="gov-title"><b>{title}</b><span>{" &gt; ".join(["홈", *path, title])}</span></div>', unsafe_allow_html=True)
 
 
-def grid(columns: list[str], rows: list[list[str]], unit: str = "", note: str = "", strong_first: bool = False) -> None:
-    """괘선 표. 칸 값은 사용자가 적은 글자(교차로 이름 등)일 수 있어 태그로 나가지 않게 한다. strong_first = 첫 줄 강조."""
+def grid(columns: list[str], rows: list[list[str]], unit: str = "", note: str = "", strong_first: bool = False,
+         merge: bool = False) -> None:
+    """괘선 표. 칸 값은 사용자가 적은 글자(교차로 이름 등)일 수 있어 태그로 나가지 않게 한다. strong_first = 첫 줄 강조,
+    merge = 첫 칸의 같은 값이 이어지는 줄을 한 칸으로 묶는다."""
     head = "".join(f"<th>{escape(c)}</th>" for c in columns)
-    body = "".join(
-        f'<tr{" class=first" if strong_first and i == 0 else ""}>' + "".join(f"<td>{escape(v)}</td>" for v in row) + "</tr>"
-        for i, row in enumerate(rows)
-    )
+    body = ""
+    for i, row in enumerate(rows):
+        cells = [f"<td>{escape(v)}</td>" for v in row]
+        if merge and i and rows[i - 1][0] == row[0]:
+            cells[0] = ""  # 위 줄의 칸에 묶인다
+        elif merge:
+            span = next((j for j in range(i, len(rows)) if rows[j][0] != row[0]), len(rows)) - i
+            cells[0] = f'<td rowspan="{span}">{escape(row[0])}</td>'
+        body += f'<tr{" class=first" if strong_first and i == 0 else ""}>' + "".join(cells) + "</tr>"
     above = f'<div class="gov-unit">(단위: {escape(unit)})</div>' if unit else ""
     below = f'<div class="gov-note">※ {escape(note)}</div>' if note else ""
     st.html(f'{above}<table class="gov-grid"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>{below}')

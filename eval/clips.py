@@ -1,5 +1,6 @@
 # 담당: 육주영
-"""미양보·미정지(위반 의심) 이벤트 구간을 잘라 클립으로 저장한다.
+"""미양보·미정지(위반 의심) 이벤트 구간을 잘라 클립으로 저장한다. 사람이 확인할 표본이라 모두 만들지 않는다
+(기술서 3.4: 미양보는 모두, 미정지는 우선 시간대마다 최대 clip_red_per_slot개. 고르는 코드는 eval.report.select_clip_events).
 모든 클립은 사람 박스 전체(운전자로 뺀 사람 포함)와 차량·오토바이 박스 아래 40%(번호판 위치)를
 ROI 밖까지 프레임 전체에서 블러한다. 끊긴 프레임은 앞뒤 박스로 보간하고, 박스에 여백을 둔다.
 블러 전 프레임은 파일로 남기지 않는다(기술서 11.1). 수치는 configs/eval.yaml의 blur_*.
@@ -10,7 +11,7 @@ configs/eval.yaml의 blur_conf 기준으로 다시 검출해 얻는다(운전자
 출력: outputs/clips/<영상>_<event_id>.webm, judged CSV의 clip 컬럼에 클립 경로를 채운다
 클립은 대시보드(브라우저)에서 바로 재생되도록 WebM(VP8)으로 저장한다. mp4v는 브라우저가 재생하지 못한다.
 
-대상은 미양보(ped_result=no_yield)이거나 미정지(red_result=not_stopped)인 이벤트이고, 이벤트마다 클립은 하나다.
+--events로 이벤트 번호를 주면 그것만 만든다(대시보드는 여러 영상에서 함께 골라 넘긴다). 이벤트마다 클립은 하나다.
 클립 구간은 출구 횡단보도 진입 시각(t_enter_s) 앞뒤로 clip_pad_s(configs/eval.yaml)씩이다. 미정지 이벤트는 정지선 통과 장면이
 들어가도록 정지선 통과 시각(t_stopline_s)의 clip_pad_s 전부터 시작한다. tracks의 frame은 0부터 세는 프레임 번호로 본다.
 """
@@ -22,6 +23,7 @@ import pandas as pd
 import yaml
 
 from eval.blur import Box, blur_frame, detect_boxes, fill_gaps
+from eval.report import select_clip_events
 
 TARGET_COLOR = (0, 0, 255)  # 위반 의심 차량 테두리 (표시용)
 
@@ -35,10 +37,12 @@ def write_clip(
     eval_cfg: dict,
     out_path: str,
 ) -> None:
-    """start~end(끝 제외) 프레임을 블러한 뒤 해당 차량 박스를 표시해 저장한다."""
+    """start~end(끝 제외) 프레임을 블러한 뒤 해당 차량 박스를 표시하고, clip_width보다 넓으면 줄여서 저장한다."""
     cap = cv2.VideoCapture(video)
     fps = cap.get(cv2.CAP_PROP_FPS)
-    size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    scale = min(1, eval_cfg["clip_width"] / w)
+    size = (round(w * scale), round(h * scale))
     writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"VP80"), fps, size)
     if not writer.isOpened():
         raise RuntimeError(f"출력 영상을 열 수 없다: {out_path}")
@@ -53,16 +57,17 @@ def write_clip(
             blur_frame(frame, blur_boxes[i], eval_cfg)
         if start + i in rows_by_frame:
             for r in rows_by_frame[start + i].itertuples():
-                cv2.rectangle(frame, (int(r.x1), int(r.y1)), (int(r.x2), int(r.y2)), TARGET_COLOR, 2)
-        writer.write(frame)
+                cv2.rectangle(frame, (int(r.x1), int(r.y1)), (int(r.x2), int(r.y2)), TARGET_COLOR, 3)
+        writer.write(frame if scale == 1 else cv2.resize(frame, size, interpolation=cv2.INTER_AREA))
 
     cap.release()
     writer.release()
 
 
 def make_clips(
-    judged: str, tracks: str, video: str, config: str, detect: str, out_dir: str = "outputs/clips"
+    judged: str, tracks: str, video: str, config: str, detect: str, out_dir: str = "outputs/clips", events: list[int] | None = None
 ) -> None:
+    """events = 클립을 만들 이벤트 번호. 주지 않으면 이 영상 안에서 select_clip_events로 고른다."""
     with open(config, encoding="utf-8") as fp:
         eval_cfg = yaml.safe_load(fp)
     with open(detect, encoding="utf-8") as fp:
@@ -77,8 +82,7 @@ def make_clips(
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    not_stopped = judged_df.get("red_result") == "not_stopped"  # 2단계 판정 전에 만든 judged에는 컬럼이 없다
-    targets = judged_df[(judged_df["ped_result"] == "no_yield") | not_stopped]
+    targets = select_clip_events(judged_df, eval_cfg) if events is None else judged_df[judged_df["event_id"].isin(events)]
     clips = {}
     for n, r in enumerate(targets.itertuples(), 1):
         t_start = r.t_enter_s
@@ -90,7 +94,7 @@ def make_clips(
             detect_boxes(video, detect_cfg, eval_cfg["blur_conf"], start, end),
             int(eval_cfg["blur_interp_max_s"] * fps),
         )
-        out_path = out / f"{Path(video).stem}_{r.event_id}.webm"
+        out_path = out / f"{Path(judged).stem}_{r.event_id}.webm"  # 원본 이름이 아니라 판정 CSV 이름: 대시보드는 같은 원본을 방향만 바꿔 등록할 수 있다
         write_clip(
             video, start, end, blur_boxes, tracks_df[tracks_df["track_id"] == r.track_id], eval_cfg, str(out_path)
         )
@@ -108,8 +112,10 @@ def main() -> None:
     parser.add_argument("--video", required=True)
     parser.add_argument("--config", default="configs/eval.yaml")
     parser.add_argument("--detect", default="configs/detect.yaml")
+    parser.add_argument("--events", help="클립을 만들 이벤트 번호(쉼표로 구분). 생략하면 기술서 3.4 기준으로 고른다")
     args = parser.parse_args()
-    make_clips(args.judged, args.tracks, args.video, args.config, args.detect)
+    events = None if args.events is None else [int(e) for e in args.events.split(",")]
+    make_clips(args.judged, args.tracks, args.video, args.config, args.detect, events=events)
 
 
 if __name__ == "__main__":

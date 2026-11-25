@@ -5,7 +5,7 @@ matplotlib(이미 쓰는 라이브러리)의 PdfPages로 A4 세로 쪽을 만든
 
 요지 상자: 종합 단속 우선 검토 대상(어느 교차로를 몇 시에)과 유형별 위반 의심 건수
 Ⅰ 분석 개요: 목적·기간·대상·자료·방법
-Ⅱ 분석 결과 총괄: 종합 단속 우선 검토 시간대(기술서 3.1), 위반 유형별 현황(판정 대상·위반 의심·위반율과 Wilson 95% 신뢰구간), 유형별 상위 3개, 차종별 현황
+Ⅱ 분석 결과 총괄: 종합 단속 우선 검토 시간대(기술서 3.1), 위반 유형별 현황(판정 대상·위반 의심·위반율과 Wilson 95% 신뢰구간), 유형별 상위 3개, 차종별 현황, 교차로·차종별 위반율
 Ⅲ 판정 기준(판정 결과가 있는 유형만)
 Ⅳ~ 위반 유형별 세부 현황: 교차로·시간대별 위반율 표(판정 대상 min_n 미만은 참고용)와 막대그래프(신뢰구간 표시),
   판정 결과별 건수, 제외 사유, 미양보가 있던 횡단보도(보행자). 제외 사유·횡단보도 칸이 없는 표(DB에서 읽은 것)는 그 항목만 뺀다
@@ -291,6 +291,43 @@ def vehicle_rows(judged: pd.DataFrame) -> list[list[str]]:
     return rows
 
 
+def site_vehicle_rates(judged: pd.DataFrame, min_n: int) -> dict[str, pd.DataFrame]:
+    """위반 유형마다 교차로 x 차종 위반율 표(기술서 3.1). rate_table의 시간대 칸에 차종을 넣어 같은 계산·참고용 기준을 쓴다.
+    차종 칸이 없거나 그 유형의 판정이 없으면 빠진다."""
+    if "vehicle_type" not in judged:
+        return {}
+    by_vehicle = judged.assign(slot=judged["vehicle_type"])
+    return {name: rate_table(by_vehicle, min_n, *kind) for name, kind in KINDS.items() if counts(judged, *kind)[0]}
+
+
+def site_vehicle_top(judged: pd.DataFrame, min_n: int, fmt=pct) -> list[list[str]]:
+    """위반율 높은 교차로·차종: [위반 유형, 순위, 교차로, 차종, 판정 대상, 위반 의심, 위반율]. 표본이 충분한 칸만. fmt = 위반율 표기."""
+    rows = []
+    for name, table in site_vehicle_rates(judged, min_n).items():
+        bad = KINDS[name][2]
+        for i, r in enumerate(top_slots(table, TOP_N).itertuples(), 1):
+            rows.append([name, str(i), str(r.intersection), VEHICLES.get(r.slot, str(r.slot)), f"{r.n_target:,}",
+                         f"{getattr(r, f'n_{bad}'):,}", fmt(r.violation_rate)])
+    return rows
+
+
+def site_vehicle_rows(judged: pd.DataFrame, min_n: int, fmt=pct) -> list[list[str]]:
+    """교차로 x 차종 표: [교차로, 차종, 우회전, (판정 대상, 위반 의심, 위반율) x 2]. 참고용 위반율에는 *를 붙인다."""
+    rates = site_vehicle_rates(judged, min_n)
+    if not rates:
+        return []
+    rows = []
+    for (site, vehicle), g in sorted(judged.groupby(["intersection", "vehicle_type"]), key=lambda item: (item[0][0], -len(item[1]))):
+        cells = [str(site), VEHICLES.get(vehicle, str(vehicle)), f"{len(g):,}"]
+        for name, (_, _, bad) in KINDS.items():
+            t = rates.get(name)
+            r = None if t is None else t[(t["intersection"] == site) & (t["slot"] == vehicle)].iloc[0]
+            cells += ["-"] * 3 if r is None or not r["n_target"] else [
+                f"{r['n_target']:,}", f"{r[f'n_{bad}']:,}", fmt(r["violation_rate"]) + ("*" if r["note"] else "")]
+        rows.append(cells)
+    return rows
+
+
 def reason_rows(raw: pd.DataFrame, col: str) -> list[list[str]]:
     """제외 사유별 건수(많은 순). 사유 칸이 없는 표(DB에서 읽은 것)면 빈 목록."""
     column = REASON_COLUMNS[col]
@@ -402,6 +439,20 @@ def summary(doc: Document, judged: pd.DataFrame, min_n: int) -> None:
         doc.item("차종별 현황", "단위: 건, %", keep=table_h(len(rows)))
         doc.table(["차종", "우회전", "미양보 대상", "미양보 의심", "위반율", "미정지 대상", "미정지 의심", "위반율"], rows,
                   [30, 18, 22, 22, 18, 22, 22, 18], total=True)
+
+    rows, top_rows = site_vehicle_rows(judged, min_n), site_vehicle_top(judged, min_n)
+    if rows:
+        doc.item(f"위반율이 높은 교차로·차종(유형별 상위 {TOP_N}개 이내)", "단위: 건, %", keep=table_h(len(top_rows)))
+        if top_rows:
+            doc.table(["구분", "순위", "교차로", "차종", "판정 대상", "위반 의심", "위반율"], top_rows, [34, 14, 34, 26, 22, 22, 20], merge=True)
+        else:
+            doc.paragraph("○", f"판정 대상이 {min_n}건 이상이면서 위반 의심이 있는 교차로·차종 없음", 4)
+        doc.item("교차로·차종별 현황", "단위: 건, %", keep=table_h(len(rows)) + 8)
+        doc.table(["교차로", "차종", "우회전", "미양보 대상", "의심", "위반율", "미정지 대상", "의심", "위반율"], rows,
+                  [30, 26, 16, 22, 14, 18, 22, 14, 18], merge=True)
+        doc.y -= 4
+        doc.paragraph("※", f"* 는 참고용(판정 대상 {min_n}건 미만)", 2, 9)
+        doc.y += 2
 
 
 def rate_chart(doc: Document, chunk: pd.DataFrame) -> None:

@@ -132,7 +132,7 @@ def analyze_section(red_mode: str) -> None:
     ready = [v for v in pipeline.load_videos() if pipeline.video_status(v) == "영역 완료"]
     running = pipeline.running_job()
     st.caption("영역을 설정한 영상을 분석합니다(차량·보행자 검출과 추적이라 영상 길이만큼 이상 걸립니다). "
-               f"메일 주소를 적으면 끝난 뒤 보고서 PDF를 보냅니다. 화면을 닫아도 분석은 계속됩니다. 보고서는 왼쪽의 판정 모드({red_mode})로 만듭니다.")
+               f"메일 주소를 적으면 끝난 뒤 보고서 PDF를 보내고, 이어서 위반 의심 클립(블러)을 만듭니다. 화면을 닫아도 분석은 계속됩니다. 보고서는 왼쪽의 판정 모드({red_mode})로 만듭니다.")
     email = st.text_input("보고서 받을 메일 (선택)", placeholder="name@example.com")
     if email and not re.fullmatch(EMAIL_PATTERN, email.strip()):
         st.caption(":red[메일 주소 형식이 아닙니다.]")
@@ -153,7 +153,7 @@ def progress(job: Path) -> None:
     if status["state"] not in ("대기", "진행 중"):
         st.rerun()
     names = {"대기": "대기", "track": "검출·추적", "events": "우회전 찾기", "signal": "신호등 색", "features": "특징 계산",
-             "rules": "판정", "완료": "완료", "실패": "실패"}
+             "rules": "판정", "clips": "클립 생성", "완료": "완료", "실패": "실패"}
     overall, per = pipeline.job_progress(job, status)
     st.progress(overall, text=f"분석 중 {overall:.0%} (시작 {status.get('started', status['created'])})")
     rows = []
@@ -168,7 +168,8 @@ def progress(job: Path) -> None:
 
 def report_section() -> None:
     st.subheader("4. 보고서")
-    jobs = [(job, s) for job, s in pipeline.list_jobs() if s["state"] not in ("대기", "진행 중")]
+    # 보고서는 클립을 만드는 동안에도 받을 수 있다
+    jobs = [(job, s) for job, s in pipeline.list_jobs() if s["state"] not in ("대기", "진행 중") or s.get("report")]
     if not jobs:
         st.info("끝난 분석이 없습니다.")
         return
@@ -179,6 +180,8 @@ def report_section() -> None:
             c1.caption(f"메일: {s.get('mail', '-')}")
             for vid, error in s.get("errors", {}).items():
                 c1.caption(f":red[{vid}: {error}]")
+            for vid, error in s.get("clip_errors", {}).items():
+                c1.caption(f":orange[{vid}: {error} (판정 결과와 보고서는 그대로입니다)]")
             report = Path(s.get("report") or "")
             if report.is_file():
                 c2.download_button("보고서 내려받기", report.read_bytes(), f"report_{job.name}.pdf", "application/pdf",

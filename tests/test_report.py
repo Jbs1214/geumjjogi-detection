@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from eval.report import apply_red_mode, evaluate, rate_table, report, wilson_ci
+from eval.report import select_clip_events, apply_red_mode, evaluate, rate_table, report, wilson_ci
 
 CFG = {"match_window_s": 2.0, "min_n_reference": 30, "bootstrap_n": 100}
 
@@ -148,6 +148,34 @@ class ReportFileTest(unittest.TestCase):
         self.assertTrue(math.isnan(metrics.loc[0, "no_yield_f1"]))
         self.assertTrue(math.isnan(metrics.loc[0, "f1_ci_low"]))
 
+
+
+class ClipSelectTest(unittest.TestCase):
+    """클립을 만들 이벤트 고르기(기술서 3.4)."""
+    CFG = {"min_n_reference": 30, "clip_red_slots": 2, "clip_red_per_slot": 3}
+
+    def slot(self, slot, n, red, ped=0):
+        return pd.DataFrame({
+            "intersection": "A", "slot": slot, "wall_time": [f"2026-11-22 {slot[:2]}:{i:02d}:00" for i in range(n)],
+            "ped_result": ["no_yield"] * ped + ["yield"] * (n - ped),
+            "red_result": ["not_stopped"] * red + ["stopped"] * (n - red)})
+
+    def test_all_no_yield_and_red_sampled_from_top_slots(self):
+        df = pd.concat([self.slot("08–09시", 40, 20), self.slot("12–13시", 40, 5, ped=2), self.slot("18–19시", 40, 30), self.slot("22–23시", 10, 10)],
+                       ignore_index=True)
+        got = select_clip_events(df, self.CFG)
+        # 미양보 2건은 모두(12–13시). 미정지는 위반율 높은 18–19시·08–09시에서 3개씩. 22–23시는 100%지만 참고용
+        self.assertEqual(got.groupby("slot").size().to_dict(), {"08–09시": 3, "12–13시": 2, "18–19시": 3})
+        self.assertEqual([t[-5:] for t in got[got["slot"] == "18–19시"]["wall_time"]], ["00:00", "14:00", "29:00"])   # 시각 순으로 고르게
+
+    def test_small_video_falls_back_to_most_suspects(self):
+        df = pd.concat([self.slot("08–09시", 5, 1), self.slot("12–13시", 5, 4), self.slot("18–19시", 5, 2)], ignore_index=True)
+        self.assertEqual(select_clip_events(df, self.CFG).groupby("slot").size().to_dict(), {"12–13시": 3, "18–19시": 2})
+
+    def test_event_with_both_kinds_counted_once(self):
+        df = self.slot("08–09시", 5, 3, ped=1)
+        self.assertEqual(list(select_clip_events(df, self.CFG).index), [0, 1, 2])
+        self.assertEqual(list(select_clip_events(df.drop(columns="red_result"), self.CFG).index), [0])   # 2단계 판정 전
 
 
 if __name__ == "__main__":

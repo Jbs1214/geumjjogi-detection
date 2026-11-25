@@ -3,7 +3,7 @@
 실행: streamlit run dashboard/app.py
 
 화면(기술서 3.2, 행정 업무시스템형 모양은 dashboard/ui.py): 조회 조건(교차로·기간·위반 유형·정렬), 종합 단속 우선 검토 시간대(report_pdf.overall_slots, 보고서와 같은 계산),
-유형별 총괄 현황, 유형별 단속 우선 검토 시간대 상위 3개(표본 충분, 위반 의심 1건 이상)와 클립 보기, 교차로 x 시간대 위반율 표(Wilson 95% 신뢰구간,
+유형별 총괄 현황, 유형별 단속 우선 검토 시간대 상위 3개(표본 충분, 위반 의심 1건 이상)와 클립 보기, 교차로·차종별 현황, 교차로 x 시간대 위반율 표(Wilson 95% 신뢰구간,
 configs/eval.yaml의 min_n_reference 미만 "참고용")와 CSV 내려받기.
 "위반 의심 통계이며 실제 단속은 별도 확인이 필요하다" 문구를 항상 표시한다.
 위반 유형 "전체"는 두 유형을 나란히 보여 주고 위반율을 하나로 합치지 않는다(분모가 다르다).
@@ -38,7 +38,6 @@ ALL_KINDS = "전체"
 BAR_COLOR = "#44546a"  # 위반율 막대
 REFERENCE_STYLE = "color: #8a8f98"  # 신뢰도 "참고용" 글자
 ROW_PX = 32  # 위반율 표 한 줄 높이
-RATE_PX = 100  # 위반율 칸 너비("전체"에서 두 표를 나란히 놓아도 신뢰도 칸까지 보이게)
 ACCOUNT_CHIP = """<div class="account-chip"><div class="account-name">{name}{role}</div><div class="account-agency">{agency}</div></div>"""
 SORTS = {  # 표시 이름: (정렬 컬럼, 오름차순)
     "위반율 높은 순": ("violation_rate", False),
@@ -104,16 +103,18 @@ def rate_views(table: pd.DataFrame, bad: str) -> tuple[pd.DataFrame, pd.DataFram
     return view, export
 
 
-def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str, red_mode: str) -> None:
-    """위반 유형 하나의 총괄 현황, 단속 우선 검토 시간대와 클립, 교차로·시간대별 위반율 표, 내려받기."""
-    col, ok, bad, file_name = KINDS[name]
-    if col not in filtered.columns or not filtered[col].isin([ok, bad]).any():
+def has_result(filtered: pd.DataFrame, name: str) -> bool:
+    col, ok, bad, _ = KINDS[name]
+    return col in filtered.columns and bool(filtered[col].isin([ok, bad]).any())
+
+
+def summary(name: str, filtered: pd.DataFrame, min_n: int) -> None:
+    """위반 유형 하나의 총괄 현황과 단속 우선 검토 시간대."""
+    if not has_result(filtered, name):
         st.info(f"{name} 판정 결과가 없습니다.")
         return
+    col, ok, bad, _ = KINDS[name]
     table = rate_table(filtered, min_n, col, ok, bad)
-    column, ascending = SORTS[sort_name]
-    table = table.sort_values(column, ascending=ascending)
-
     n, k = int(table["n_target"].sum()), int(table[f"n_{bad}"].sum())
     low, high = wilson_ci(k, n)
     st.subheader(f"{name} 총괄 현황")
@@ -126,6 +127,12 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str, red_mo
 
     priority(name, filtered, table, min_n)
 
+
+def detail(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str, red_mode: str) -> None:
+    """위반 유형 하나의 교차로·시간대별 위반율 표와 내려받기."""
+    col, ok, bad, file_name = KINDS[name]
+    column, ascending = SORTS[sort_name]
+    table = rate_table(filtered, min_n, col, ok, bad).sort_values(column, ascending=ascending)
     st.subheader(f"{name} 교차로·시간대별 현황 (총 {len(table)}건)")
     view, export = rate_views(table, bad)
     export = export.assign(**{
@@ -137,7 +144,7 @@ def render(name: str, filtered: pd.DataFrame, min_n: int, sort_name: str, red_mo
     st.dataframe(
         view.style.map(lambda v: "" if v == "표본 충분" else REFERENCE_STYLE, subset=["신뢰도"]),
         column_config={
-            "위반율": st.column_config.ProgressColumn("위반율", min_value=0, max_value=100, format="%.0f%%", color=BAR_COLOR, width=RATE_PX)
+            "위반율": st.column_config.ProgressColumn("위반율", min_value=0, max_value=100, format="%.0f%%", color=BAR_COLOR)
         },
         hide_index=True,
         width="stretch",
@@ -171,6 +178,22 @@ def overall(filtered: pd.DataFrame, min_n: int) -> None:
     )
 
 
+def vehicles(filtered: pd.DataFrame, min_n: int) -> None:
+    """교차로·차종별 현황(기술서 3.1): 어느 교차로에서 어떤 차종의 위반율이 높은지. 보고서 PDF와 같은 계산이고 두 유형을 함께 보여 준다."""
+    rows = report_pdf.site_vehicle_rows(filtered, min_n, pct)
+    if not rows:  # 차종 칸이 없는 자료
+        return
+    st.subheader(f"위반율이 높은 교차로·차종 (유형별 상위 {TOP_N}개 이내)")
+    top = report_pdf.site_vehicle_top(filtered, min_n, pct)
+    if top:
+        ui.grid(["구분", "순위", "교차로", "차종", "판정 대상", "위반 의심", "위반율"], top, unit="건, %", merge=True)
+    else:
+        st.info(f"판정 대상이 {min_n}건 이상이면서 위반 의심이 있는 교차로·차종이 없습니다.")
+    st.subheader("교차로·차종별 현황")
+    ui.grid(["교차로", "차종", "우회전", "미양보 대상", "미양보 의심", "미양보 위반율", "미정지 대상", "미정지 의심", "미정지 위반율"], rows,
+            unit="건, %", note=f"* 는 참고용(판정 대상 {min_n}건 미만)입니다.", merge=True)
+
+
 def priority(name: str, filtered: pd.DataFrame, table: pd.DataFrame, min_n: int) -> None:
     """위반 유형 하나의 단속 우선 검토 시간대 표와, 시간대마다 위반 의심 클립."""
     col, _, bad, _ = KINDS[name]
@@ -191,15 +214,37 @@ def priority(name: str, filtered: pd.DataFrame, table: pd.DataFrame, min_n: int)
             & (filtered["slot"] == r.slot)
             & (filtered[col] == bad)
             & (filtered["clip"] != "")
-        ]["clip"]
+        ].sort_values("wall_time")
         if clips.empty:
             continue
-        with area.expander(f"{rank}순위 영상 자료 ({len(clips)}개)"):
-            for clip in clips:
-                if Path(clip).exists():
-                    st.video(clip, format="video/webm")  # eval.clips가 WebM(VP8)으로 저장한다
-                else:
-                    st.caption(f"파일 없음: {clip}")
+        labels = {p.clip: f"{pd.Timestamp(p.wall_time):%m-%d %H:%M:%S} {getattr(p, 'vehicle_type', '')}".strip() for p in clips.itertuples()}
+        with area.expander(f"{rank}순위 영상 자료 ({len(labels)}개, 의심 {getattr(r, f'n_{bad}')}건 중)"):
+            clip_player(labels, f"clip-{col}-{rank}")
+
+
+def clip_player(labels: dict[str, str], key: str) -> None:
+    """클립을 하나 골라 본다(한꺼번에 불러오지 않게). labels = {클립 경로: 표시 이름}"""
+    clip = st.selectbox("발생 시각", list(labels), format_func=labels.get, key=key)
+    if Path(clip).exists():
+        st.video(clip, format="video/webm")  # eval.clips가 WebM(VP8)으로 저장한다
+    else:
+        st.caption(f"파일 없음: {clip}")
+
+
+def all_clips(filtered: pd.DataFrame) -> None:
+    """조회 조건에 맞는 클립 전부(표본, 기술서 3.4). 우선 시간대에 들지 않는 미양보 클립도 여기서 본다."""
+    clips = filtered[filtered["clip"] != ""].sort_values(["intersection", "wall_time"])
+    if clips.empty:
+        return
+    suspects = {name: filtered[col] == bad for name, (col, _, bad, _) in KINDS.items() if col in filtered}
+    total = int(pd.concat(suspects, axis=1).any(axis=1).sum())
+    labels = {}
+    for p in clips.itertuples():
+        kinds = "·".join(name for name, hit in suspects.items() if hit[p.Index])
+        labels[p.clip] = f"{p.intersection} {pd.Timestamp(p.wall_time):%m-%d %H:%M:%S} {getattr(p, 'vehicle_type', '')} {kinds}"
+    st.subheader(f"위반 의심 영상 자료 ({len(labels)}개, 의심 {total}건 중)")
+    st.caption("※ 사람이 확인할 표본입니다. 미양보는 모두, 미정지는 우선 시간대에서 일부만 만듭니다.")
+    clip_player(labels, "clip-all")
 
 
 def report_button(filtered: pd.DataFrame, min_n: int, red_mode: str) -> None:
@@ -354,7 +399,7 @@ def main(judged_dir: str = "outputs/judged", config: str = "configs/eval.yaml", 
     all_sites = sorted(df["intersection"].unique())
     sites = f1.multiselect("교차로", all_sites, default=all_sites)
     period = f2.date_input("기간", (df["date"].min(), df["date"].max()))
-    kind = f3.selectbox("위반 유형", [*KINDS, ALL_KINDS])
+    kind = f3.selectbox("위반 유형", [ALL_KINDS, *KINDS])
     sort_name = f4.selectbox("정렬", list(SORTS))
     if len(period) != 2:  # 날짜 범위를 고르는 중
         return
@@ -368,7 +413,13 @@ def main(judged_dir: str = "outputs/judged", config: str = "configs/eval.yaml", 
     names = list(KINDS) if kind == ALL_KINDS else [kind]
     for area, name in zip(st.columns(len(names)), names):  # "전체"는 좌우로 나란히
         with area:
-            render(name, filtered, min_n, sort_name, red_mode)
+            summary(name, filtered, min_n)
+    vehicles(filtered, min_n)
+    all_clips(filtered)
+    shown = [name for name in names if has_result(filtered, name)]
+    for area, name in zip(st.tabs([f"{name} 현황" for name in shown]) if len(shown) > 1 else [st.container()], shown):  # 긴 표는 유형별 탭으로
+        with area:
+            detail(name, filtered, min_n, sort_name, red_mode)
     ui.footer("자동 판정 결과(사람 확인 전)입니다. 영상 자료는 얼굴·번호판을 블러한 것만 보여 줍니다.")
 
 
