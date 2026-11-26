@@ -1,3 +1,24 @@
-# Dashboard theme: light, as in the example screen of the plan document (docs/plan.md 3-4).
+# Dashboard theme: light, government back-office style (docs/spec.md 3.2). Layout CSS is in dashboard/ui.py.
+[client]
+toolbarMode = "minimal"
+
 [theme]
 base = "light"
+primaryColor = "#1f3864"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#222222"
+borderColor = "#c3cad4"
+dataframeBorderColor = "#d5dbe4"
+dataframeHeaderBackgroundColor = "#e6ebf2"
+dataframeHeaderTextColor = "#222222"
+font = "'Malgun Gothic', Dotum, sans-serif"
+baseFontSize = 14
+baseRadius = "0px"
+buttonRadius = "2px"
+showWidgetBorder = true
+metricValueFontSize = "1.35rem"
+
+[theme.sidebar]
+backgroundColor = "#f2f4f8"
+secondaryBackgroundColor = "#ffffff"

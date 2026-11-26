@@ -15,6 +15,7 @@ from eval.clips import make_clips
 EVAL_CFG = {
     "blur_conf": 0.1, "blur_interp_max_s": 2.0, "blur_margin": 0.15,
     "blur_kernel_frac": 0.5, "blur_plate_frac": 0.4, "clip_pad_s": 0.5,
+    "min_n_reference": 30, "clip_red_slots": 3, "clip_red_per_slot": 5, "clip_width": 80,
 }
 N_FRAMES, FPS, SIZE = 50, 10.0, (160, 120)
 
@@ -63,16 +64,19 @@ class MakeClipsTest(unittest.TestCase):
                     str(tmp / "eval.yaml"), str(tmp / "detect.yaml"), str(tmp / "clips"),
                 )
 
-            self.assertEqual(sorted(p.name for p in (tmp / "clips").iterdir()), ["v_1.webm", "v_3.webm"])
+            self.assertEqual(sorted(p.name for p in (tmp / "clips").iterdir()), ["judged_1.webm", "judged_3.webm"])
             # 이벤트 1: 2.0초 ± 0.5초 → 프레임 15~25, 11장
-            self.assertEqual(count_frames(tmp / "clips" / "v_1.webm"), 11)
+            self.assertEqual(count_frames(tmp / "clips" / "judged_1.webm"), 11)
+            cap = cv2.VideoCapture(str(tmp / "clips" / "judged_1.webm"))
+            self.assertEqual((cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), (80, 60))   # clip_width로 줄인다
+            cap.release()
             # 이벤트 3: 4.75초 ± 0.5초는 영상 끝(프레임 50)을 넘으므로 프레임 42~49, 8장으로 잘린다
-            self.assertEqual(count_frames(tmp / "clips" / "v_3.webm"), 8)
+            self.assertEqual(count_frames(tmp / "clips" / "judged_3.webm"), 8)
 
             out = pd.read_csv(tmp / "judged.csv", encoding="utf-8-sig", keep_default_na=False)
-            self.assertTrue(out["clip"][0].endswith("clips/v_1.webm"))
+            self.assertTrue(out["clip"][0].endswith("clips/judged_1.webm"))
             self.assertEqual(out["clip"][1], "")
-            self.assertTrue(out["clip"][2].endswith("clips/v_3.webm"))
+            self.assertTrue(out["clip"][2].endswith("clips/judged_3.webm"))
 
     def test_not_stopped_events_get_clips_from_stopline(self):
         judged = pd.DataFrame({
@@ -83,6 +87,7 @@ class MakeClipsTest(unittest.TestCase):
             "t_stopline_s": [1.5, 1.5, 2.0],
             "ped_result": ["yield", "yield", "no_yield"],
             "red_result": ["not_stopped", "stopped", "na"],
+            "intersection": "A", "slot": "08–09시", "wall_time": ["2026-11-22 08:00:01", "2026-11-22 08:00:02", "2026-11-22 08:00:03"],
             "clip": "",
         })
         tracks = pd.DataFrame({
@@ -107,11 +112,11 @@ class MakeClipsTest(unittest.TestCase):
                 )
 
             # 미정지(1)와 미양보(3)만 자른다. 일시정지(2)는 자르지 않는다
-            self.assertEqual(sorted(p.name for p in (tmp / "clips").iterdir()), ["v_1.webm", "v_3.webm"])
+            self.assertEqual(sorted(p.name for p in (tmp / "clips").iterdir()), ["judged_1.webm", "judged_3.webm"])
             # 이벤트 1(미정지): 정지선 1.5초 − 0.5초 ~ 진입 2.0초 + 0.5초 → 프레임 10~25, 16장
-            self.assertEqual(count_frames(tmp / "clips" / "v_1.webm"), 16)
+            self.assertEqual(count_frames(tmp / "clips" / "judged_1.webm"), 16)
             # 이벤트 3(미양보만): 정지선 시각과 관계없이 3.0초 ± 0.5초 → 프레임 25~35, 11장
-            self.assertEqual(count_frames(tmp / "clips" / "v_3.webm"), 11)
+            self.assertEqual(count_frames(tmp / "clips" / "judged_3.webm"), 11)
 
 
 if __name__ == "__main__":

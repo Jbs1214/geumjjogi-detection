@@ -14,6 +14,7 @@ import matplotlib
 
 matplotlib.use("Agg")  # 화면 없이 파일로만 저장
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -70,6 +71,24 @@ def rate_table(
             "note": "참고용" if n < min_n_reference else "",
         })
     return pd.DataFrame(rows)
+
+
+def select_clip_events(judged: pd.DataFrame, cfg: dict, red_mode: str = "보통") -> pd.DataFrame:
+    """클립을 만들 이벤트 줄(기술서 3.4): 미양보는 모두, 미정지는 우선 시간대 clip_red_slots개에서 시간대마다 최대 clip_red_per_slot개를 시각 순으로 고르게.
+    표본이 충분한 시간대가 없으면 미정지가 많은 시간대에서 뽑는다. judged는 모드를 적용하기 전 표이고 줄 번호(index)를 그대로 돌려준다."""
+    ped = judged["ped_result"] == "no_yield"
+    red = (judged["red_result"] == "not_stopped") & ~ped if "red_result" in judged else ped & False  # 2단계 판정 전에 만든 judged에는 컬럼이 없다
+    chosen = list(judged.index[ped])
+    if red.any():
+        table = rate_table(apply_red_mode(judged, red_mode), cfg["min_n_reference"], "red_result", "stopped", "not_stopped")
+        slots = top_slots(table, cfg["clip_red_slots"])
+        if slots.empty:
+            slots = table[table["n_not_stopped"] > 0].sort_values("n_not_stopped", ascending=False).head(cfg["clip_red_slots"])
+        for s in slots.itertuples():
+            g = judged[red & (judged["intersection"] == s.intersection) & (judged["slot"] == s.slot)].sort_values("wall_time")
+            k = min(len(g), cfg["clip_red_per_slot"])
+            chosen += [g.index[i] for i in np.linspace(0, len(g) - 1, k).round().astype(int)]
+    return judged.loc[sorted(chosen)]
 
 
 def has_red_judgment(judged: pd.DataFrame) -> bool:

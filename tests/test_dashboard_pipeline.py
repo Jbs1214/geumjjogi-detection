@@ -148,7 +148,7 @@ def fake_run(out: Path, video_stem: str, fail: str = ""):
     def run(cmd, **kwargs):
         module = cmd[2]
         step = {"tracking.track": "track", "tracking.events": "events", "traffic_light.color": "signal",
-                "features.build": "features", "rules.rule": "rules"}[module]
+                "features.build": "features", "rules.rule": "rules", "eval.clips": "clips"}[module]
         if step == fail:
             kwargs["stdout"].write("Traceback: 가짜 오류\n")
             return subprocess.CompletedProcess(cmd, 1)
@@ -166,6 +166,11 @@ def fake_run(out: Path, video_stem: str, fail: str = ""):
             vid = Path(arg("--events")).stem
             (out / "features").mkdir(exist_ok=True)
             (out / "features" / f"{vid}.csv").write_text("x", encoding="utf-8")
+        elif step == "clips":
+            judged = pd.read_csv(arg("--judged"), encoding="utf-8-sig")
+            assert Path(arg("--tracks")).exists() and Path(arg("--video")).exists()
+            assert arg("--events") == "2,3", "미양보(2)와 미정지(3)"
+            judged.assign(clip="outputs/clips/x.webm").to_csv(arg("--judged"), index=False, encoding="utf-8-sig")
         else:
             vid = Path(arg("--features")).stem
             (out / "judged").mkdir(exist_ok=True)
@@ -210,6 +215,43 @@ class JobTest(Sandbox):
         self.assertIn("가짜 오류", status["errors"][v["id"]])
         self.assertIn("분석에 성공한 영상이 없습니다", status["mail"])
 
+    def test_clips_made_after_mail_and_saved_to_db(self):
+        job, v = self.make_job(email="a@b.co")
+        order = []
+        run = fake_run(pipeline.OUT, self.video.stem)
+
+        def spy(cmd, **kwargs):
+            order.append(cmd[2])
+            return run(cmd, **kwargs)
+        with patch("subprocess.run", spy), patch("dashboard.db.configured", return_value=True), \
+                patch("dashboard.db.save_events") as save, patch.object(mailer, "configured", return_value=True), \
+                patch.object(mailer, "send_report", side_effect=lambda *a: order.append("mail")):
+            pipeline.run_job(job)
+        self.assertEqual(order[-2:], ["mail", "eval.clips"])
+        self.assertEqual(save.call_count, 2)   # 판정 뒤 한 번, 클립 뒤 clip 칸까지 다시 한 번
+        self.assertEqual(set(save.call_args.args[0]["clip"]), {"outputs/clips/x.webm"})
+        status = pipeline.read_status(job)
+        self.assertEqual((status["state"], status["videos"][v["id"]], status["clip_errors"]), ("완료", "완료", {}))
+
+    def test_clip_failure_keeps_result_and_report(self):
+        job, v = self.make_job()
+        with patch("subprocess.run", fake_run(pipeline.OUT, self.video.stem, fail="clips")), \
+                patch("dashboard.db.configured", return_value=False):
+            pipeline.run_job(job)
+        status = pipeline.read_status(job)
+        self.assertEqual((status["state"], status["videos"][v["id"]], status["errors"] if "errors" in status else {}), ("완료", "완료", {}))
+        self.assertIn("가짜 오류", status["clip_errors"][v["id"]])
+        self.assertTrue(Path(status["report"]).is_file())
+
+    def test_clip_db_error_does_not_stop_job(self):
+        job, v = self.make_job()
+        with patch("subprocess.run", fake_run(pipeline.OUT, self.video.stem)), patch("dashboard.db.configured", return_value=True), \
+                patch("dashboard.db.save_events", side_effect=[3, OSError("끊김")]):
+            pipeline.run_job(job)
+        status = pipeline.read_status(job)
+        self.assertEqual(status["state"], "완료")
+        self.assertIn("끊김", status["clip_errors"][v["id"]])
+
     def test_mail_sent_after_report(self):
         job, _ = self.make_job(email="a@b.co")
         with patch("subprocess.run", fake_run(pipeline.OUT, self.video.stem)), patch("dashboard.db.configured", return_value=False), \
@@ -245,7 +287,7 @@ class ReportTest(unittest.TestCase):
         out = report_pdf.build_report(df, Path(tempfile.mkdtemp()) / "r.pdf", 30)
         data = out.read_bytes()
         self.assertTrue(data.startswith(b"%PDF"))
-        self.assertEqual(data.count(b"/Type /Page\n") + data.count(b"/Type /Page "), 3)   # 요약 + 보행자 + 적색
+        self.assertGreaterEqual(data.count(b"/Type /Page\n") + data.count(b"/Type /Page "), 3)   # 이어 쓰는 배치라 정확한 쪽수는 보지 않는다
 
     def test_no_events_still_makes_report(self):
         empty = judged_rows("A-S_20261122_0800", "A").iloc[:0]   # 우회전 이벤트 0건인 영상
@@ -262,6 +304,31 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(report_pdf.detail_blocks(plain, "ped_result"), [])
         out = report_pdf.build_report(plain, Path(tempfile.mkdtemp()) / "r.pdf", 30, red_mode="엄격")
         self.assertTrue(out.read_bytes().startswith(b"%PDF"))
+
+    def test_overall_slots_ranks_by_rank_sum(self):
+        """종합 순위 = 유형별 위반율 순위의 합이 작은 순, 같으면 보행자 위반율이 높은 순. 한 유형이라도 참고용이면 뺀다."""
+        def slot(name, ped_bad, red_bad, n_red=10):
+            return pd.DataFrame({"intersection": "A", "slot": name,
+                                 "ped_result": ["no_yield"] * ped_bad + ["yield"] * (10 - ped_bad),
+                                 "red_result": ["not_stopped"] * red_bad + ["stopped"] * (n_red - red_bad) + ["na"] * (10 - n_red)})
+        df = pd.concat([slot("a", 1, 9), slot("b", 3, 5), slot("c", 5, 1), slot("d", 4, 8), slot("e", 9, 5, n_red=5), slot("f", 0, 0)])
+        out = report_pdf.overall_slots(df, 10)
+        # 순위(미양보, 미정지): a(4,1) b(3,3) c(1,4) d(2,2). e는 적색 표본이 모자라고 f는 위반 의심이 0건이라 뺀다
+        self.assertEqual(out["slot"].tolist(), ["d", "c", "a"])
+        self.assertEqual(out["rank_sum"].tolist(), [4, 5, 5])
+        self.assertTrue(report_pdf.overall_slots(df.assign(red_result="na"), 10).empty)
+
+    def test_site_vehicle_rates(self):
+        """교차로·차종별: 표본이 충분한 칸만 상위에 들고, 참고용은 *를 붙이고, 차종·판정이 없으면 빠진다."""
+        def group(site, vehicle, n, bad):
+            return pd.DataFrame({"intersection": site, "vehicle_type": vehicle, "slot": "08–09시",
+                                 "ped_result": ["no_yield"] * bad + ["yield"] * (n - bad)})
+        df = pd.concat([group("A", "차", 20, 2), group("A", "트럭", 10, 4), group("B", "차", 20, 5), group("B", "버스", 3, 3)])
+        self.assertEqual([r[2:4] + r[6:] for r in report_pdf.site_vehicle_top(df, 10)],
+                         [["A", "트럭", "40.0%"], ["B", "승용·승합차", "25.0%"], ["A", "승용·승합차", "10.0%"]])
+        rows = report_pdf.site_vehicle_rows(df, 10)
+        self.assertEqual(rows[-1], ["B", "버스", "3", "3", "3", "100.0%*", "-", "-", "-"])
+        self.assertEqual(report_pdf.site_vehicle_rows(df.drop(columns="vehicle_type"), 10), [])
 
     def test_kinds_match_dashboard(self):
         self.assertEqual({k: v[:3] for k, v in app.KINDS.items()}, report_pdf.KINDS)
@@ -301,9 +368,9 @@ class PageTest(Sandbox):
             at = AppTest.from_file(str(Path(app.__file__)), default_timeout=30).run()
             at.sidebar.radio[0].set_value("영상 분석").run()
         self.assertFalse(at.exception)
-        self.assertEqual([s.value for s in at.main.subheader], ["① 영상 등록", "② 영역 설정", "③ 분석", "④ 리포트"])
-        self.assertEqual([s.value for s in at.sidebar.subheader], ["공통 필터", "이 화면: 처리 현황"])
-        self.assertIn("영역 설정 시작 (1개)", [b.label for b in at.sidebar.button])
+        self.assertEqual([s.value for s in at.main.subheader], ["1. 영상 등록", "2. 영역 설정", "3. 분석", "4. 보고서"])
+        self.assertEqual([s.value for s in at.sidebar.subheader], ["조회 조건", "처리 현황"])
+        self.assertIn("영역 설정 시작 (1개)", [b.label for b in at.main.button])
         self.assertEqual([t.value for t in at.sidebar.text], ["분석 완료 0", "영역 미설정 1", "오류 0"])
 
     def test_register_marks_duplicate_and_filter_narrows_list(self):

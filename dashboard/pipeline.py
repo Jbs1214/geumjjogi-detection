@@ -11,6 +11,7 @@ right_turn_signal = 등록할 때 고른 신호 조건을 넣는다. 날씨는 �
 한 번에 하나만 돈다(GPU). 작업 폴더(data/dashboard/jobs/<시각>)에 job.json(영상·메일), status.json(진행), log.txt, report.pdf.
 영상마다 track → events → color(신호등 영역이 있을 때) → features → rules → (DB 설정 시) events 표에 넣기,
 다 끝나면 이번 영상들의 판정으로 리포트 PDF를 만들고 메일 주소가 있으면 보낸다(통계만, 영상·클립은 보내지 않음).
+그다음 위반 의심 클립(블러, eval.clips)을 만들어 판정 CSV의 clip 칸(과 DB)을 채운다. 오래 걸리므로 리포트·메일 뒤에 하고, 실패해도 판정과 리포트는 그대로다.
 """
 import argparse
 import json
@@ -25,6 +26,8 @@ import cv2
 import pandas as pd
 import yaml
 
+from eval.report import select_clip_events
+
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / "data" / "dashboard"
 VIDEOS_FILE = WORK / "videos.json"
@@ -37,7 +40,7 @@ WEATHERS = ["맑음", "우천"]
 # 신호 조건(표시 이름: site 파일의 right_turn_signal). 우회전 전용 신호가 있으면 적색 정지 판정에서 뺀다(기술서 2.3)
 SIGNALS = {"직진 신호만": False, "우회전 전용 신호 있음 (정지선 제외)": True}
 NAME_PATTERN = r"[^\s_/\\:*?\"<>|.]+"  # 교차로 이름: 파일 이름에 들어가므로 공백·밑줄·경로 문자 없이
-STEPS = ["track", "events", "signal", "features", "rules"]  # 화면에 보여 줄 단계 이름(signal은 신호등 영역이 있을 때만)
+STEPS = ["track", "events", "signal", "features", "rules", "clips"]  # 화면에 보여 줄 단계 이름(signal은 신호등 영역이 있을 때만)
 TRACK_LINE = r"추적 (\d+)/(\d+)프레임"  # tracking.track이 1%마다 찍는 진행 줄
 UNBUFFERED = {"PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}  # 단계 출력이 바로 log.txt에 쓰이게(진행률·오류를 바로 보이게)
 
@@ -254,6 +257,27 @@ def run_video(job: Path, video: dict, log) -> str:
     return ""
 
 
+def run_clips(job: Path, video: dict, events: list[int], log) -> str:
+    """고른 이벤트(events)의 위반 의심 클립을 만들고 DB를 쓰면 clip 칸까지 다시 넣는다. 실패하면 이유, 아니면 "". 판정 결과는 바뀌지 않는다."""
+    from dashboard import db
+
+    vid = video["id"]
+    judged = OUT / "judged" / f"{vid}.csv"
+    cmd = [sys.executable, "-m", "eval.clips", "--judged", str(judged), "--tracks", str(OUT / "tracks" / f"{vid}.csv"), "--video", video["source"],
+           "--events", ",".join(map(str, events))]
+    log.write(f"\n=== {vid} clips: {' '.join(cmd)}\n")
+    log.flush()
+    if subprocess.run(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, env={**os.environ, **UNBUFFERED}).returncode != 0:
+        log.flush()
+        return "클립 생성 실패: " + " / ".join((job / "log.txt").read_text(encoding="utf-8", errors="replace").strip().splitlines()[-3:])
+    if db.configured():
+        try:
+            db.save_events(pd.read_csv(judged, encoding="utf-8-sig", dtype={"clip": str}))
+        except Exception as e:  # 판정은 이미 DB에 있으므로 클립 경로만 못 넣은 것으로 남긴다
+            return f"클립 경로를 DB에 넣지 못함: {e}"
+    return ""
+
+
 def track_progress(job: Path, vid: str) -> float | None:
     """지금 검출·추적 중인 영상의 진행률(0~1). log.txt에서 그 영상 track 단계 뒤의 마지막 진행 줄을 읽는다. 아직 없으면 None."""
     log = (job / "log.txt").read_text(encoding="utf-8", errors="replace") if (job / "log.txt").exists() else ""
@@ -299,7 +323,7 @@ def run_job(job: Path) -> None:
         min_n = yaml.safe_load(EVAL_CONFIG.read_text(encoding="utf-8"))["min_n_reference"]
         done = {v["id"]: v["intersection"] for v in spec["videos"] if v["id"] not in errors}
         report = report_pdf.build_report(pd.concat(judged, ignore_index=True), job / "report.pdf", min_n,
-                                         f"분석 리포트 ({len(judged)}개 영상)", done, red_mode=spec["red_mode"])
+                                         videos=done, red_mode=spec["red_mode"])
     mail = "보내지 않음(메일 주소 없음)"
     if spec["email"] and report:
         if not mailer.configured():
@@ -312,7 +336,24 @@ def run_job(job: Path) -> None:
                 mail = f"보내지 못함: {e}"
     elif spec["email"]:
         mail = "보내지 못함: 분석에 성공한 영상이 없습니다"
-    update_status(job, state="완료" if judged else "실패", report=str(report) if report else "", mail=mail,
+    update_status(job, report=str(report) if report else "", mail=mail)
+    clip_errors = {}
+    finished = [v for v in spec["videos"] if v["id"] not in errors]
+    chosen = {}  # 영상 id: 클립을 만들 이벤트 번호(이번 작업의 영상들에서 함께 고른다)
+    if judged:
+        cfg = yaml.safe_load(EVAL_CONFIG.read_text(encoding="utf-8"))
+        merged = pd.concat([df.assign(job_video=v["id"]) for v, df in zip(finished, judged)], ignore_index=True)
+        chosen = select_clip_events(merged, cfg, spec["red_mode"]).groupby("job_video")["event_id"].apply(list).to_dict()
+    with open(job / "log.txt", "a", encoding="utf-8") as log:
+        for video in finished:
+            if video["id"] not in chosen:  # 위반 의심이 없거나 뽑히지 않은 영상
+                continue
+            update_status(job, videos={**read_status(job)["videos"], video["id"]: "clips"})
+            error = run_clips(job, video, chosen[video["id"]], log)
+            if error:
+                clip_errors[video["id"]] = error
+            update_status(job, videos={**read_status(job)["videos"], video["id"]: "완료"}, clip_errors=clip_errors)
+    update_status(job, state="완료" if judged else "실패",
                   finished=datetime.now().strftime("%Y-%m-%d %H:%M"))
 
 
