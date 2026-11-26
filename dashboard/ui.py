@@ -14,6 +14,8 @@ STYLE = """<style>
   display: flex; align-items: center; padding: 0 20px; font-size: 1.15rem; font-weight: 700; border-bottom: 3px solid #8a9bb8; }
 [data-testid="stHeader"] { background: transparent; height: 46px; min-height: 46px; z-index: 999990; pointer-events: none; }
 [data-testid="stHeader"] button { pointer-events: auto; color: #fff; }
+/* Streamlit 오른쪽 위 도구(Share 등 배포 사이트 버튼, 실행 중·Stop, 메뉴, Deploy)는 상단 띠의 계정 버튼과 겹쳐서 숨긴다 */
+:is([data-testid="stToolbarActions"], [data-testid="stStatusWidget"], [data-testid="stMainMenu"], [data-testid="stAppDeployButton"]) { display: none; }
 [data-testid="stSidebar"] { top: 46px; height: calc(100vh - 46px); min-width: 260px; max-width: 260px; border-right: 1px solid #c3cad4; }
 [data-testid="stSidebarHeader"] { display: none; }
 [data-testid="stSidebarUserContent"] { padding: 14px 14px 24px; }
